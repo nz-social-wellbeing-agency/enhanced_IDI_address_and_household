@@ -15,199 +15,141 @@
 #' Issues:
 #' 
 #' History (reverse order):
+#' 2019-09-26 SA clean to minimal production code
+#' 2019-07-06 SA v1
 #' 2018-11-13 SA v0
 #'#################################################################################################################
 
-#' Produce a summary table identifying which addresses contain multiple dwellings
-#'
-identify_multi_dwelling_addresses = function(db_connection, household_records){
-
-  # number of dwelling
-  num_dwellings = household_records %>%
-    select(address_uid, household_uid, source) %>%
-    distinct() %>%
-    group_by(address_uid, source) %>%
-    summarise(num_hhlds = n()) %>%
-    ungroup() %>%
-    group_by(address_uid) %>%
-    summarise(num_hhlds = max(num_hhlds, na.rm = TRUE))
+#' Cautious model for group address analysis
+#' 
+#' Used when there are stability concerns, such as the database
+#' connection timing-out.
+#' 
+cautious_reconnect <- function(address_notifications, purge = FALSE, exclude = c()){
+  # get current table name
+  current_table = address_notifications$ops$x %>% as.character() %>% strsplit("\\.")
+  current_table = current_table[[1]][3]
   
-  # multi-dwelling
-  multi_dwelling = num_dwellings %>%
-    ungroup() %>%
-    mutate(multi_ind = ifelse(num_hhlds > 1, 'Y', 'N'))
-
-  # write out  
-  multi_dwelling = write_for_reuse(db_connection, 
-                                   schema = "[IDI_Sandpit].[DL-MAA2016-15]",
-                                   tbl_name = "chh_tmp_multi_dwelling",
-                                   tbl_to_save = multi_dwelling,
-                                   index_columns = c("address_uid"))
+  # renew connection
+  dbDisconnect(db_con_IDI_sandpit)
+  db_con_IDI_sandpit = create_database_connection(database = "IDI_Sandpit")
+  # reconnect to table
+  address_notifications = create_access_point(db_con_IDI_sandpit, our_schema, current_table)
+  # assign into the parent environment
+  assign("db_con_IDI_sandpit", db_con_IDI_sandpit, envir = parent.frame())
+  assign("address_notifications", address_notifications, envir = parent.frame())
   
-  # return
-  return(multi_dwelling)
+  if(purge){
+    purge_tables_by_prefix(db_con_IDI_sandpit, our_schema, "chh_tmp", exclude = c(current_table, exclude))
+    run_time_inform_user("- temporary tables removed")
+  }
+  
 }
 
-#' Identify address change notifications that should be updated as part of ensuring
-#' move in/out dates are consistent across household members.
-#' (Not intended to be called directly)
+#' Produce a summary table identifying which addresses contain multiple dwellings
 #'
-standardise_address_change_on_similar_dates = function(db_connection, address_notifications,
-                                                       from_match, to_match, concurrency, multi, DAYS_GAP){
-  # initial filtering, concurrency = F
-  if(!concurrency)
-    address_notifications = address_notifications %>% filter(concurrent_flag == 0)
+#' Removed as minimal gain from distinguishing between multi-dwelling and uni-dwelling addresses.
+
+#' Create address change notifications by multi-dwelling address status
+#' 
+#' Each row gives the [snz_uid] of a person who moved from [prev_address_uid]
+#' to [address_uid] on [notification_date] as recorded by [source] and [validation].
+#' 
+#' Removed as minimal gain from distinguishing between multi-dwelling and uni-dwelling addresses.
+
+#' Identify records where two people make a related move but on different dates.
+#' Construct a composite notification from which deletion and addition to correct for
+#' out-of-sync-ness can take place
+#'
+#' Each row gives the [snz_uid] of a person who moved to [address_uid] on [notification_date]
+#' as reported by [source] and [validation], but for whom [notification_date_updated] would
+#' be a better choice of date.
+#'
+out_of_sync_records = function(address_notifications, from_match, to_match, DAYS_GAP){
+  # checks
+  assert(is.logical(from_match), "from match must be TRUE or FALSE")
+  assert(is.logical(to_match), "to match must be TRUE or FALSE")
+  assert(is.numeric(DAYS_GAP), "days gap must be numeric")
+  assert(from_match | to_match, "no reason to standardise without a match on from or to address")
   
-  # add previous address & concurrency
+  # add previous address
   full_address_moves = address_notifications %>%
     group_by(snz_uid) %>%
     mutate(prev_address_uid = lag(address_uid, 1, order_by = "notification_date"),
-           prev_concurrent_flag = lag(concurrent_flag, 1, order_by = "notification_date")) %>%
+           prev_notification_date = lag(notification_date, 1, order_by = "notification_date")) %>%
     filter(!is.na(prev_address_uid))
-  # We explicitly exclude records without a previous address for clarity.
-  # Otherwise they implicitly/invisibly are removed during the joins below.
-  
-  # initial filtering, concurrency = T
-  if(concurrency)
-    full_address_moves = full_address_moves %>%
-      filter(prev_concurrent_flag == 1, concurrent_flag == 1)
-  
-  # multi-dwelling data source
-  multi_dwelling = create_access_point(db_connection, schema = "[IDI_Sandpit].[DL-MAA2016-15]",
-                                       tbl_name = "chh_tmp_multi_dwelling") %>%
-    filter(multi_ind == 'Y')
-  
-  # initial filtering, multi-dwelling address
-  if(!multi)
-    ready_table = full_address_moves %>%
-      anti_join(multi_dwelling, by = "address_uid") %>%
-      anti_join(multi_dwelling, by = c("prev_address_uid" = "address_uid"))
-  
-  if(multi){
-    partA = full_address_moves %>%
-      semi_join(multi_dwelling, by = "address_uid")
-    partB = full_address_moves %>%
-      anti_join(multi_dwelling, by = "address_uid") %>%
-      semi_join(multi_dwelling, by = c("prev_address_uid" = "address_uid"))
-    ready_table = union_all(partA, partB, colnames(partA))
-  }
-    
-    # write for reuse
+  # exclude records without previous address for clarity, else they are invisibly removed below
+
+  # columns to join by
   join_column = c()
-  if(to_match)
-    join_column = append(join_column, "address_uid")
-  if(from_match)
-    join_column = append(join_column, "prev_address_uid")
-  
-  full_address_moves = write_for_reuse(db_connection, 
-                                   schema = "[IDI_Sandpit].[DL-MAA2016-15]",
-                                   tbl_name = "chh_tmp_full_address_moves",
-                                   tbl_to_save = ready_table,
-                                   index_columns = join_column)
+  if(to_match){ join_column = c(join_column, "address_uid") }
+  if(from_match){ join_column = c(join_column, "prev_address_uid") }
   
   # pairs of addresses where refinement is possible
   address_pairs = full_address_moves %>%
     inner_join(full_address_moves, by = join_column, suffix = c("_x","_y")) %>%
     filter(snz_uid_x < snz_uid_y, # not the same person, count every pair at most once
-           notification_date_x != notification_date_y) %>% # no need to update if dates already identical
+           notification_date_x != notification_date_y, # no need to update if dates already identical
+           prev_notification_date_x < notification_date_y, # no intervening notifications
+           prev_notification_date_y < notification_date_x) %>%
     mutate(date_sync = DATEDIFF(day, notification_date_x, notification_date_y)) %>%
     mutate(date_sync = abs(date_sync)) %>% # days difference between move
     filter(date_sync <= DAYS_GAP)
-    
+  
   # focus on records to change
-  records_to_change = address_pairs %>%
-    mutate(snz_uid = ifelse(notification_date_x < notification_date_y,
-                            snz_uid_y, snz_uid_x),
-           source = ifelse(notification_date_x < notification_date_y,
-                           source_y, source_x),
-           concurrent_flag = ifelse(notification_date_x < notification_date_y,
-                                    concurrent_flag_y, concurrent_flag_x),
-           notification_date = ifelse(notification_date_x < notification_date_y,
-                                      notification_date_y, notification_date_x),
-           notification_date_updated = ifelse(notification_date_x < notification_date_y,
-                                              notification_date_x, notification_date_y))
+  records_for_change = address_pairs %>%
+    mutate(x_first = ifelse(notification_date_x < notification_date_y, 1, 0)) %>%
+    mutate(snz_uid = ifelse(x_first == 1, snz_uid_y, snz_uid_x),
+           source = ifelse(x_first == 1, source_y, source_x),
+           validation = ifelse(x_first == 1, validation_y, validation_x),
+           notification_date = ifelse(x_first == 1, notification_date_y, notification_date_x),
+           notification_date_updated = ifelse(x_first == 1, notification_date_x, notification_date_y))
   # address_uid will have suffix {_x, _y} if it was not used for matching
   if(!to_match)
-    records_to_change = records_to_change %>%
-      mutate(address_uid = ifelse(notification_date_x < notification_date_y,
-                                  address_uid_y, address_uid_x))
+    records_for_change = records_for_change %>%
+    mutate(address_uid = ifelse(x_first == 1, address_uid_y, address_uid_x))
   # select
-  records_to_change = records_to_change %>%
-    mutate(validation = "NO") %>%
-    select(snz_uid, address_uid, notification_date, source, validation, concurrent_flag, notification_date_updated)
+  records_for_change = records_for_change %>%
+    select(snz_uid, address_uid, notification_date, source, validation, notification_date_updated)
   
-  records_to_change = write_for_reuse(db_connection, 
-                                      schema = "[IDI_Sandpit].[DL-MAA2016-15]",
-                                      tbl_name = "chh_tmp_records_to_change",
-                                      tbl_to_save = records_to_change,
-                                      index_columns = "snz_uid")
-  
-  # output tables
-  original_records_for_discard = records_to_change %>%
-    select(snz_uid, address_uid, notification_date, source, validation, concurrent_flag) %>%
-    distinct() %>%
-    mutate(replaced = "standardise move in date")
-  
-  new_records_for_addition = records_to_change %>%
-    group_by(snz_uid, address_uid, notification_date, source, validation, concurrent_flag) %>%
-    summarise(new_notification_date = min(notification_date_updated, na.rm = TRUE)) %>%
-    mutate(source = "standardise move in date") %>%
-    ungroup() %>%
-    select(snz_uid, address_uid, source, validation, concurrent_flag, notification_date = new_notification_date)
-  
-  return(list(original_records_for_discard = original_records_for_discard,
-              new_records_for_addition = new_records_for_addition))
+  return(records_for_change)
 }
 
 #' Compare across individuals who share an addresses and ensure consistent move in/out dates
 #' 
-consistent_address_change__dates = function(db_connection, address_notifications,
-                                             from_match, to_match, concurrency, multi, DAYS_GAP){
-  # checks
-  assert(is.logical(from_match), "from match must be TRUE or FALSE")
-  assert(is.logical(to_match), "to match must be TRUE or FALSE")
-  assert(is.logical(concurrency), "concurrency must be TRUE or FALSE")
-  assert(is.logical(multi), "multi must be TRUE or FALSE")
-  assert(is.numeric(DAYS_GAP), "days gap must be numeric")
-  assert(from_match | to_match, "no reason to standardise without a match on from or to address")
+#' Identify address change notifications that should be updated as part of ensuring
+#' move in/out dates are consistent across household members.
+#' (Not intended to be called directly)
+#' 
+consistent_address_change_dates = function(records_for_change){
   
-  # early exit
-  if(DAYS_GAP > 0){
-    # get notifications to update
-    out = standardise_address_change_on_similar_dates(db_connection, address_notifications,
-                                                      from_match, to_match, concurrency, multi, DAYS_GAP)
-    original_records_for_discard = out$original_records_for_discard
-    new_records_for_addition = out$new_records_for_addition
-    
-    # check equal number of notifications
-    num_for_discard = original_records_for_discard %>% ungroup %>% summarise(num = n()) %>% collect()
-    num_for_addition = new_records_for_addition %>% ungroup() %>% summarise(num = n()) %>% collect()
-    assert(num_for_discard[[1,1]] == num_for_addition[[1,1]], "different number of records added and removed")
-    
-    # store replaced notifications
-    append_database_table(db_con_IDI_sandpit, our_schema, "chh_replaced_notifications",
-                          columns_for_replacement_table, original_records_for_discard)
-    
-    # remove replaced and add updated notifications
-    address_notifications = address_notifications %>%
-      anti_join(original_records_for_discard, by = c("snz_uid", "notification_date", "address_uid", "source")) %>%
-      union_all(new_records_for_addition, columns_for_notification_table)
-  }
+  # output tables
+  original_records_for_discard = records_for_change %>%
+    select(snz_uid, address_uid, notification_date, source, validation) %>%
+    distinct() %>%
+    mutate(replaced = "standardise move in date")
   
-  # write for reuse
-  temp_tbl_name = paste0("chh_tmp_consistent_moves_",floor(runif(1)*1E10))
-  address_notifications = write_for_reuse(db_connection, our_schema, temp_tbl_name,
-                                          address_notifications, index_columns = "snz_uid")
+  new_records_for_addition = records_for_change %>%
+    group_by(snz_uid, address_uid, notification_date, source, validation) %>%
+    summarise(new_notification_date = min(notification_date_updated, na.rm = TRUE)) %>%
+    mutate(source = "standardise move in date",
+           validation = "NO") %>%
+    ungroup() %>%
+    select(snz_uid, address_uid, source, validation, notification_date = new_notification_date)
   
-  return(address_notifications)
+  # check equal number of notifications added & removed
+  require_equal_length(original_records_for_discard, new_records_for_addition)
+  
+  return(list(add = new_records_for_addition, discard = original_records_for_discard))
 }
 
-#' Syncronise dependent children addresses with their parents
-#'
-sync_dependent_children = function(db_connection, address_notifications, DEPENDENT_AGE){
-  
+#' De-duplicated birth records
+#' 
+#' Each row gives [snz_uid] born to [parent1_snz_uid] and [parent2_snz_uid]
+#' on [birth_date]
+#' 
+obtain_birth_record = function(birth_records){
   # obtain birth records
-  birth_records = create_access_point(db_connection, "[IDI_Clean_20181020].[dia_clean]", "[births]")
   birth_records = birth_records %>%
     filter(!is.na(snz_uid),
            !is.na(dia_bir_birth_month_nbr),
@@ -215,22 +157,28 @@ sync_dependent_children = function(db_connection, address_notifications, DEPENDE
            !is.na(parent1_snz_uid),
            !is.na(parent2_snz_uid),
            dia_bir_birth_year_nbr >= 1982) %>%
-    select("snz_uid", "dia_bir_birth_month_nbr", "dia_bir_birth_year_nbr", "parent1_snz_uid", "parent2_snz_uid") %>%
-    distinct()
+    mutate(birth_date = DATEFROMPARTS(dia_bir_birth_year_nbr, dia_bir_birth_month_nbr, 15)) %>%
+    select("snz_uid", "birth_date", "parent1_snz_uid", "parent2_snz_uid") %>%
+    distinct() # required as a small number of people have duplicate birth records
+}
+
+#' Synchronise dependent children addresses with their parents
+#'
+sync_dependent_children = function(address_notifications, birth_records, DEPENDENT_AGE){
   
   # notifications with notification details about the same date
   address_about_notifications = address_notifications %>%
     group_by(snz_uid) %>%
     mutate(next_notification_date = lead(notification_date, 1, order_by = "notification_date"),
+           next_address_uid = lead(address_uid, 1, order_by = "notification_date"),
            prev_notification_date = lag(notification_date, 1, order_by = "notification_date"),
            prev_address_uid = lag(address_uid, 1, order_by = "notification_date"))
   
   # child's notifications
   child_notifs = address_about_notifications %>%
     inner_join(birth_records, by = "snz_uid") %>%
-    mutate(birth_date = DATEFROMPARTS(dia_bir_birth_year_nbr, dia_bir_birth_month_nbr, 15)) %>%
     mutate(age_at_notif = DATEDIFF(year, birth_date, notification_date)) %>%
-    filter(0 <= age_at_notif,
+    filter(1 <= age_at_notif,
            age_at_notif <= DEPENDENT_AGE)
   
   # add parent notifications
@@ -238,33 +186,28 @@ sync_dependent_children = function(db_connection, address_notifications, DEPENDE
     inner_join(address_about_notifications, by = c("parent1_snz_uid" = "snz_uid"), suffix = c("","_p1")) %>%
     inner_join(address_about_notifications, by = c("parent2_snz_uid" = "snz_uid"), suffix = c("","_p2")) %>%
     filter(address_uid_p1 == address_uid_p2, # parents share the same address
-           concurrent_flag_p1 == concurrent_flag_p2, # parents share same concurrency
-           address_uid != address_uid_p1, # child is at a different address
-           notification_date_p1 <= next_notification_date_p2,
-           notification_date_p2 <= next_notification_date_p1, # parents are at the address at the same time
+           notification_date_p1 < next_notification_date_p2,
+           notification_date_p2 < next_notification_date_p1, # parents are at the address at the same time
            (prev_address_uid == prev_address_uid_p1
-            | prev_address_uid == prev_address_uid_p2), # child was at same address at at least one parent
-           prev_notification_date <= notification_date_p1,
-           prev_notification_date <= notification_date_p2, # parents notif is in gap where child is missing notif
-           notification_date_p1 <= notification_date,
-           notification_date_p2 <= notification_date) # parents notif is in gap where child is missing notif
-  
-  # intermediate output
-  child_parent_notifs = write_for_reuse(db_connection, our_schema, "chh_tmp_child_parent_notifs",
-                                        child_parent_notifs, index_columns = "snz_uid")
+            | prev_address_uid == prev_address_uid_p2), # child was at same address as at least one parent
+           address_uid != address_uid_p1, # child notifies to a different address
+           address_uid == next_address_uid_p1,
+           address_uid == next_address_uid_p2, # child notifies to both parents' next addresses
+           prev_notification_date < notification_date_p1,
+           prev_notification_date < notification_date_p2, # parents notif is in gap where child is missing notif
+           notification_date_p1 < notification_date,
+           notification_date_p2 < notification_date) # parents notif is in gap where child is missing notif
   
   # form into new child notification
   new_child_notifs = child_parent_notifs %>%
     mutate(new_address_uid = address_uid_p1,
            new_notification_date = ifelse(notification_date_p1 < notification_date_p2,
-                                          notification_date_p1, notification_date_p2),
-           new_concurrent_flag = concurrent_flag_p1,
+                                          notification_date_p2, notification_date_p1),
            source = "sync child to parents",
            validation = "NO") %>%
     select(snz_uid, source, validation,
            address_uid = new_address_uid,
-           notification_date = new_notification_date,
-           concurrent_flag = new_concurrent_flag)
+           notification_date = new_notification_date)
   
   # output
   return(new_child_notifs)
@@ -272,66 +215,101 @@ sync_dependent_children = function(db_connection, address_notifications, DEPENDE
 
 #' Ensure that move out dates for a address occur before move in dates
 #' Necessarily limited to move outs that are within "AVOIDED OVERLAP" days of move ins
+#' 
+#' More likely that people report change of address late than that it gets reported early.
+#' Hence in an overlap, we shift the move out date backwards, not the move in date forwards.
 #'
-consistent_hand_overs = function(db_connection, address_notifications, AVOIDED_OVERLAP){
-  # multi-dwelling addresses
-  multi_dwelling = create_access_point(db_connection, schema = "[IDI_Sandpit].[DL-MAA2016-15]",
-                                       tbl_name = "chh_tmp_multi_dwelling") %>%
-    filter(multi_ind == 'Y')
-  
+#' Each row gives [snz_uid] who moved out of [address_uid] on [notification_date_old]
+#' as repored by [source] and [validation]
+#' would be better recorded as moving out on [notification_Date_new]
+#'
+get_inconsistent_hand_overs = function(address_notifications, AVOIDED_OVERLAP, MINIMUM_TENANCY){
+
   # get previous addresses
   full_address_moves = address_notifications %>%
-    filter(concurrent_flag == 0) %>%
     group_by(snz_uid) %>%
-    mutate(prev_address_uid = lag(address_uid, 1, order_by = "notification_date"))
-  
+    mutate(prev_address_uid = lag(address_uid, 1, order_by = "notification_date"),
+           prev_notification_date = lag(notification_date, 1, order_by = "notification_date"))
   # join
   linked_addresses = full_address_moves %>%
     inner_join(full_address_moves, by = c("prev_address_uid" = "address_uid"), suffix = c("_out","_in")) %>%
-    anti_join(multi_dwelling, by = c("prev_address_uid_out" = "address_uid")) %>%
-    mutate(days_diff = DATEDIFF(DAY, notification_date_out, notification_date_in)) %>%
+    mutate(days_diff = DATEDIFF(DAY, notification_date_out, notification_date_in),
+           days_stay_out = DATEDIFF(DAY, prev_notification_date_out, notification_date_out),
+           days_stay_in = DATEDIFF(DAY, prev_notification_date_in, notification_date_in)) %>%
     filter(snz_uid_out != snz_uid_in, # not the same person
            notification_date_in <= notification_date_out, # move in happens before move out
-           ABS(days_diff) <= AVOIDED_OVERLAP) # move out & in are close together
+           prev_notification_date_out < notification_date_in, # exclude people moving out moved twice
+           ABS(days_diff) <= AVOIDED_OVERLAP, # move out & in are close together
+           days_stay_out > MINIMUM_TENANCY, # move out must be from a long term stay
+           days_stay_in > MINIMUM_TENANCY, # move in must be for a long term stay
+           validation_out == "NO")
   
   # focus on records to change
-  records_to_change = linked_addresses %>%
-    mutate(notification_date_new = DATEADD(DAY, -1, notification_date_out)) %>%
+  records_for_change = linked_addresses %>%
+    mutate(notification_date_new = DATEADD(DAY, -1, notification_date_in)) %>%
     ungroup() %>%
-    select(snz_uid = snz_uid_in,
-           address_uid = prev_address_uid_out,
-           notification_date_old = notification_date_in,
+    select(snz_uid = snz_uid_out,
+           address_uid,
+           notification_date_old = notification_date_out,
            notification_date_new,
-           source = source_in,
-           concurrent_flag = concurrent_flag_in) %>%
+           source = source_out) %>%
     mutate(validation = "NO")
-    
-    # write
-    records_to_change = write_for_reuse(db_connection, 
-                                        schema = "[IDI_Sandpit].[DL-MAA2016-15]",
-                                        tbl_name = "chh_tmp_consistent_hand_overs",
-                                        tbl_to_save = records_to_change,
-                                        index_columns = "snz_uid")
-    
-    # prepare output
-    move_ins_for_discard = records_to_change %>%
-      select(snz_uid, address_uid, notification_date = notification_date_old,
-             source, validation, concurrent_flag) %>%
-      distinct() %>%
-      mutate(replaced = "consistent hand overs")
-    
-    new_move_ins_to_add = records_to_change %>%
-      group_by(snz_uid, address_uid, notification_date_old, source, validation, concurrent_flag) %>%
-      summarise(notification_date = min(notification_date_new, na.rm = TRUE)) %>%
-      mutate(source = "consistent hand overs") %>%
-      select(snz_uid, address_uid, source, validation, concurrent_flag, notification_date)
-    
-    # check equal number of notifications
-    num_for_discard = move_ins_for_discard %>% ungroup %>% summarise(num = n()) %>% collect()
-    num_for_addition = new_move_ins_to_add %>% ungroup() %>% summarise(num = n()) %>% collect()
-    assert(num_for_discard[[1,1]] == num_for_addition[[1,1]], "different number of records added and removed")
-    
-    return(list(move_ins_for_discard = move_ins_for_discard,
-                new_move_ins_to_add = new_move_ins_to_add))
+  
+  return(records_for_change)
 }
 
+#' Resolve inconsistent handovers in address change.
+#'
+ensure_consistent_hand_overs = function(records_for_change){
+
+  # prepare output
+  late_notifs_for_discard = records_to_change %>%
+    select(snz_uid, address_uid, notification_date = notification_date_old,
+           source, validation) %>%
+    distinct() %>%
+    mutate(replaced = "consistent hand overs")
+  
+  earlier_notifs_to_add = records_to_change %>%
+    group_by(snz_uid, address_uid, notification_date_old, source, validation) %>%
+    summarise(notification_date = min(notification_date_new, na.rm = TRUE)) %>%
+    mutate(source = "consistent hand overs") %>%
+    select(snz_uid, address_uid, source, validation, notification_date)
+  
+  # check equal number of notifications
+  require_equal_length(late_notifs_for_discard, earlier_notifs_to_add)
+  
+  return(list(discard = late_notifs_for_discard,
+              add = earlier_notifs_to_add))
+}
+
+#' Check two tables have equal numbers of records
+#' 
+require_equal_length = function(table_A, table_B){
+  num_A = table_A %>%
+    ungroup() %>%
+    summarise(num = n()) %>%
+    collect() %>%
+    unlist(use.names = FALSE)
+  
+  num_B = table_B %>%
+    ungroup() %>%
+    summarise(num = n()) %>%
+    collect() %>%
+    unlist(use.names = FALSE)
+  
+  assert(num_A == num_B, "different number of records in tables that should match")
+}
+
+#' At end of non-residential spell, add new notification for
+#' resumption of New Zealand address.
+#'
+#' Removed as non-residential spells did not improve accuracy
+
+#' At start of non-residential spell, add notifications for end
+#' of residence at New Zealand address.
+#'
+#' Removed as non-residential spells did not improve accuracy
+
+#' Notifications during non-residence spells for removal
+#'
+#' Removed as non-residential spells did not improve accuracy.

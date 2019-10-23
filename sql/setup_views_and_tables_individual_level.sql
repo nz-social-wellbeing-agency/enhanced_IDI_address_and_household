@@ -11,12 +11,14 @@ Dependencies:
  
 Notes:
 1) Uses history refreshes for some versioning
-2) Currently locked to 2018-10-20 refersh
+2) Currently locked to 2019-04-20 refersh
 3) Required columns: snz_uid, notification_date, address_uid, source, validation
  
 Issues:
  
 History (reverse order):
+2019-08-13 SA updated to 2019-04-20 refresh
+2019-06-21 SA limit to single view, add high quality flag
 2019-03-05 SA views are now saved in IDI_UserCode, several tables have been moved to IDI_Adhoc
 2018-11-07 SA v0
 ******************************************************************************************************************/
@@ -36,7 +38,8 @@ SELECT DISTINCT snz_uid
 	,snz_idi_address_register_uid AS address_uid
 	,'acc' AS [source]
 	,'NO' AS [validation]
-FROM IDI_Clean_20181020.acc_clean.claims
+	,1 AS [high_quality]
+FROM IDI_Clean_20190420.acc_clean.claims
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND acc_cla_accident_date IS NOT NULL
 GO
@@ -52,9 +55,12 @@ SELECT DISTINCT snz_uid
 	,snz_idi_address_register_uid AS address_uid
 	,'ird_applied' AS [source]
 	,'NO' AS [validation]
-FROM IDI_Clean_20181020.ir_clean.ird_addresses
+	,1 AS [high_quality]
+FROM IDI_Clean_20190420.ir_clean.ird_addresses
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND ir_apc_applied_date IS NOT NULL
+AND ir_apc_address_status_code = 'V' /*V = valid */
+AND ir_apc_main_address_ind = 'Y'
 AND ir_apc_applied_date <> '2008-12-13'
 AND ir_apc_applied_date <> '2008-12-14'
 AND ir_apc_applied_date <> '2009-01-17'
@@ -72,13 +78,22 @@ SELECT DISTINCT snz_uid
 	,snz_idi_address_register_uid AS address_uid
 	,'ird_timestamp' AS [source]
 	,'NO' AS [validation]
-FROM IDI_Clean_20181020.ir_clean.ird_addresses
+	,0 AS [high_quality]
+FROM IDI_Clean_20190420.ir_clean.ird_addresses a
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND ir_apc_ird_timestamp_date IS NOT NULL
+AND ir_apc_address_status_code = 'V' /*V = valid */
+AND ir_apc_main_address_ind = 'Y'
 AND ir_apc_ird_timestamp_date <> '2008-12-13'
 AND ir_apc_ird_timestamp_date <> '2008-12-14'
 AND ir_apc_ird_timestamp_date <> '2009-01-17'
 AND ir_apc_ird_timestamp_date <> '2009-03-08'
+AND NOT EXISTS (
+	SELECT 1
+	FROM IDI_Clean_20190420.ir_clean.ird_addresses b
+	WHERE a.snz_uid = b.snz_uid
+	AND a.ir_apc_ird_timestamp_date = b.ir_apc_applied_date
+)
 GO
 
 /* MOE */
@@ -92,7 +107,8 @@ SELECT DISTINCT snz_uid
 	,snz_idi_address_register_uid AS address_uid
 	,'moe' AS [source]
 	,'NO' AS [validation]
-FROM IDI_Clean_20181020.moe_clean.student_per
+	,1 AS [high_quality]
+FROM IDI_Clean_20190420.moe_clean.student_per
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND moe_spi_mod_address_date IS NOT NULL
 GO
@@ -108,9 +124,11 @@ SELECT DISTINCT snz_uid
 	,snz_idi_address_register_uid AS address_uid
 	,'msd_residential' AS [source]
 	,'NO' AS [validation]
-FROM IDI_Clean_20181020.msd_clean.msd_residential_location
+	,1 AS [high_quality]
+FROM IDI_Clean_20190420.msd_clean.msd_residential_location
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND msd_rsd_start_date IS NOT NULL
+AND msd_rsd_start_date <> '1991-11-11'
 GO
 
 /* MSD residential - partner */
@@ -124,8 +142,9 @@ SELECT DISTINCT p.[partner_snz_uid] AS snz_uid
 	,m.snz_idi_address_register_uid AS address_uid
 	,'msd_partner' AS [source]
 	,'NO' AS [validation]
-FROM IDI_Clean_20181020.msd_clean.msd_residential_location m
-INNER JOIN [IDI_Clean_20181020].[msd_clean].[msd_partner] p
+	,0 AS [high_quality]
+FROM IDI_Clean_20190420.msd_clean.msd_residential_location m
+INNER JOIN [IDI_Clean_20190420].[msd_clean].[msd_partner] p
 ON m.snz_uid = p.snz_uid
 AND p.[msd_ptnr_ptnr_from_date] <= m.msd_rsd_start_date
 AND (m.msd_rsd_start_date <= p.[msd_ptnr_ptnr_to_date] OR p.[msd_ptnr_ptnr_to_date] IS NULL)
@@ -144,8 +163,9 @@ SELECT DISTINCT c.[child_snz_uid] AS snz_uid
 	,m.snz_idi_address_register_uid AS address_uid
 	,'msd_child' AS [source]
 	,'NO' AS [validation]
-FROM IDI_Clean_20181020.msd_clean.msd_residential_location m
-INNER JOIN [IDI_Clean_20181020].[msd_clean].[msd_child] c
+	,1 AS [high_quality]
+FROM IDI_Clean_20190420.msd_clean.msd_residential_location m
+INNER JOIN [IDI_Clean_20190420].[msd_clean].[msd_child] c
 ON m.snz_uid = c.snz_uid
 AND c.[msd_chld_child_from_date] <= m.msd_rsd_start_date
 AND (m.msd_rsd_start_date <= c.[msd_chld_child_to_date] OR c.[msd_chld_child_to_date] IS NULL)
@@ -164,7 +184,8 @@ SELECT DISTINCT snz_uid
 	,snz_idi_address_register_uid AS address_uid
 	,'msd_postal' AS [source]
 	,'NO' AS [validation]
-FROM IDI_Clean_20181020.msd_clean.msd_postal_location
+	,0 AS [high_quality]
+FROM IDI_Clean_20190420.msd_clean.msd_postal_location
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND msd_pst_start_date IS NOT NULL
 GO
@@ -180,7 +201,8 @@ SELECT DISTINCT snz_uid
 	,snz_idi_address_register_uid AS address_uid
 	,'moh_nhi' AS [source]
 	,'NO' AS [validation]
-FROM IDI_Clean_20181020.moh_clean.pop_cohort_nhi_address
+	,1 AS [high_quality]
+FROM IDI_Clean_20190420.moh_clean.pop_cohort_nhi_address
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND moh_nhi_effective_date IS NOT NULL
 GO
@@ -196,7 +218,8 @@ SELECT DISTINCT snz_uid
 	,snz_idi_address_register_uid AS address_uid
 	,'moh_pho' AS [source]
 	,'NO' AS [validation]
-FROM IDI_Clean_20181020.moh_clean.pop_cohort_pho_address
+	,1 AS [high_quality]
+FROM IDI_Clean_20190420.moh_clean.pop_cohort_pho_address
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND moh_adr_consultation_date IS NOT NULL
 GO
@@ -212,7 +235,8 @@ SELECT DISTINCT snz_uid
 	,snz_idi_address_register_uid AS address_uid
 	,'census_UR' AS [source]
 	,'YES' AS [validation]
-FROM IDI_Clean_20181020.cen_clean.census_address
+	,1 AS [high_quality]
+FROM IDI_Clean_20190420.cen_clean.census_address
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
 GO
@@ -228,7 +252,8 @@ SELECT DISTINCT snz_uid
 	,snz_idi_address_register_uid AS address_uid
 	,'census_UR5' AS [source]
 	,'NO' AS [validation]
-FROM IDI_Clean_20181020.cen_clean.census_address
+	,1 AS [high_quality]
+FROM IDI_Clean_20190420.cen_clean.census_address
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR5'
 GO
@@ -244,8 +269,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -258,8 +284,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -272,8 +299,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -286,8 +314,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -300,8 +329,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -314,8 +344,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -328,8 +359,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -342,8 +374,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -356,8 +389,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -370,8 +404,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -384,8 +419,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -398,8 +434,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -412,8 +449,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -426,8 +464,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -440,8 +479,9 @@ SELECT a.[snz_uid]
 	,b.[snz_idi_address_register_uid] AS address_uid
 	,'census_prev' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[cen_clean].[census_individual] a
-INNER JOIN [IDI_Clean_20181020].[cen_clean].[census_address] b
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[cen_clean].[census_individual] a
+INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_address] b
 ON a.snz_uid = b.snz_uid
 WHERE snz_idi_address_register_uid IS NOT NULL
 AND address_type_code = 'UR'
@@ -459,15 +499,16 @@ SELECT DISTINCT a.snz_uid
 ,a.snz_idi_address_register_uid as address_uid
 ,CONCAT('HES_',a.hes_add_hes_year_code) AS [source]
 ,'YES' as [validation]
+,1 AS [high_quality]
 
-FROM [IDI_Clean_20181020].[hes_clean].[hes_address] AS a
+FROM [IDI_Clean_20190420].[hes_clean].[hes_address] AS a
 LEFT JOIN (
 
 	SELECT hes_hhd_hes_year_code
 	,hes_hhd_year_nbr
 	,hes_hhd_month_nbr
 	,snz_hes_hhld_uid
-	FROM [IDI_Clean_20181020].[hes_clean].[hes_household] 
+	FROM [IDI_Clean_20190420].[hes_clean].[hes_household] 
 
 	UNION ALL
  
@@ -504,13 +545,14 @@ SELECT DISTINCT j.snz_uid
 	,j.[snz_idi_address_register_uid] AS address_uid
 	,k.[source]
 	,'YES' as [validation]
+	,1 AS [high_quality]
 FROM (
 
 	SELECT [snz_uid]
 		  ,[gss_hq_interview_start_date] AS notification_date
 		  ,[gss_hq_collection_code] AS [source]
 		  ,[snz_gss_hhld_uid] AS household_uid
-	FROM [IDI_Clean_20181020].[gss_clean].[gss_household_2008]
+	FROM [IDI_Clean_20190420].[gss_clean].[gss_household_2008]
 
 	UNION ALL
 
@@ -518,7 +560,7 @@ FROM (
 		  ,[gss_hq_interview_start_date] AS notification_date
 		  ,[gss_hq_collection_code] AS [source]
 		  ,[snz_gss_hhld_uid] AS household_uid
-	FROM [IDI_Clean_20181020].[gss_clean].[gss_household_2010]
+	FROM [IDI_Clean_20190420].[gss_clean].[gss_household_2010]
 
 	UNION ALL
 
@@ -526,7 +568,7 @@ FROM (
 		  ,[gss_hq_interview_start_date] AS notification_date
 		  ,[gss_hq_collection_code] AS [source]
 		  ,[snz_gss_hhld_uid] AS household_uid
-	FROM [IDI_Clean_20181020].[gss_clean].[gss_household_2012]
+	FROM [IDI_Clean_20190420].[gss_clean].[gss_household_2012]
 
 	UNION ALL
 
@@ -534,10 +576,10 @@ FROM (
 		  ,[gss_hq_interview_date] AS notification_date
 		  ,[gss_hq_collection_code] AS [source]
 		  ,[snz_gss_hhld_uid] AS household_uid
-	FROM [IDI_Clean_20181020].[gss_clean].[gss_household]
+	FROM [IDI_Clean_20190420].[gss_clean].[gss_household]
 
 ) k
-INNER JOIN [IDI_Clean_20181020].[gss_clean].[gss_identity] j
+INNER JOIN [IDI_Clean_20190420].[gss_clean].[gss_identity] j
 ON k.snz_uid = j.snz_uid
 AND k.[source] = j.[gss_id_collection_code]
 AND k.household_uid = j.snz_gss_hhld_uid
@@ -553,12 +595,13 @@ GO
 
 CREATE VIEW [DL-MAA2016-15].chh_hlfs_notifications AS
 SELECT DISTINCT a.snz_uid
-,b.[hlfs_urd_interview_date] as notification_date
-,a.[snz_idi_address_register_uid] as address_uid
-,'HLFS'+cast(year(cast(a.hlfs_adr_quarter_date as datetime)) as varchar)  as [source]
-,'YES' as [validation]
-FROM [IDI_Clean_20181020].[hlfs_clean].[household_address] as a
-INNER JOIN [IDI_Clean_20181020].[hlfs_clean].[data] as b
+	,b.[hlfs_urd_interview_date] as notification_date
+	,a.[snz_idi_address_register_uid] as address_uid
+	,'HLFS'+cast(year(cast(a.hlfs_adr_quarter_date as datetime)) as varchar)  as [source]
+	,'YES' as [validation]
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[hlfs_clean].[household_address] as a
+INNER JOIN [IDI_Clean_20190420].[hlfs_clean].[data] as b
 ON a.[snz_hlfs_uid] = b.[snz_hlfs_uid] 
 AND a.[snz_hlfs_hhld_uid] = b.[snz_hlfs_hhld_uid]
 AND a.[hlfs_adr_quarter_date] = b.[hlfs_urd_quarter_date] 
@@ -572,72 +615,15 @@ DROP VIEW [DL-MAA2016-15].[chh_nzta_mvr_notifications];
 GO
 
 CREATE VIEW [DL-MAA2016-15].chh_nzta_mvr_notifications AS
-SELECT DISTINCT a.snz_uid
-	,b.notification_date
-	,b.address_uid
-	,'MVR' AS [source]
+SELECT DISTINCT snz_uid
+	,nzta_mvr_start_date as notification_date
+	,snz_idi_address_register_uid as address_uid
+	,'NZTA' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[nzta_clean].[motor_vehicle_register] a
-INNER JOIN (
-
-	SELECT DISTINCT snz_nzta_uid
-		,nzta_mvr_start_date as notification_date
-		,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20161020].[nzta_clean].[motor_vehicle_register]
-
-	UNION ALL
-            
-	SELECT DISTINCT snz_nzta_uid
-		,nzta_mvr_start_date as notification_date
-		,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20170420].[nzta_clean].[motor_vehicle_register]
-
-	UNION ALL
-            
-	SELECT DISTINCT snz_nzta_uid
-		,nzta_mvr_start_date as notification_date
-		,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20170420].[nzta_clean].[motor_vehicle_register]
-
-	UNION ALL
-
-    SELECT DISTINCT snz_nzta_uid
-		,nzta_mvr_start_date as notification_date
-		,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20170720].[nzta_clean].[motor_vehicle_register]
-
-	UNION ALL
-
-    SELECT DISTINCT snz_nzta_uid
-		,nzta_mvr_start_date as notification_date
-		,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20171020].[nzta_clean].[motor_vehicle_register]
-
-	UNION ALL
-
-    SELECT DISTINCT snz_nzta_uid
-		,nzta_mvr_start_date as notification_date
-		,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20180420].[nzta_clean].[motor_vehicle_register]
-
-	UNION ALL
-
-    SELECT DISTINCT snz_nzta_uid
-		,nzta_mvr_start_date as notification_date
-		,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20180720].[nzta_clean].[motor_vehicle_register]
-
-	UNION ALL
-
-    SELECT DISTINCT snz_nzta_uid
-		,nzta_mvr_start_date as notification_date
-		,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20181020].[nzta_clean].[motor_vehicle_register]
-
-) b
-ON a.snz_nzta_uid = b.snz_nzta_uid
-WHERE address_uid IS NOT NULL
-AND notification_date IS NOT NULL
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[nzta_clean].[motor_vehicle_register]
+WHERE snz_idi_address_register_uid IS NOT NULL
+AND nzta_mvr_start_date IS NOT NULL
 GO
 
 /* NZTA driver's license registrations */
@@ -646,87 +632,15 @@ DROP VIEW [DL-MAA2016-15].[chh_nzta_dlr_notifications];
 GO
 
 CREATE VIEW [DL-MAA2016-15].chh_nzta_dlr_notifications AS
-SELECT DISTINCT a.snz_uid
-,notification_date
-,address_uid
-,'DLR' AS [source]
-,'NO' AS [validation]
-FROM [IDI_Clean_20181020].[nzta_clean].[drivers_licence_register] AS a
-INNER JOIN (
-
-	SELECT DISTINCT snz_uid
-	,snz_nzta_uid
-	,2016 as year
-	,10 as month
+SELECT DISTINCT snz_uid
 	,nzta_dlr_licence_issue_date as notification_date
 	,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20161020].[nzta_clean].[drivers_licence_register]
-
-	UNION ALL
-
-	SELECT DISTINCT snz_uid
-	,snz_nzta_uid
-	,2017 as year
-	,4 as month
-	,nzta_dlr_licence_issue_date as notification_date
-	,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20170420].[nzta_clean].[drivers_licence_register]
-
-	UNION ALL
-
-	SELECT DISTINCT snz_uid
-	,snz_nzta_uid
-	,2017 as year
-	,7 as month
-	,nzta_dlr_licence_issue_date as notification_date
-	,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20170720].[nzta_clean].[drivers_licence_register]
-
-	UNION ALL
-
-	SELECT DISTINCT snz_uid
-	,snz_nzta_uid
-	,2017 as year
-	,10 as month
-	,nzta_dlr_licence_issue_date as notification_date
-	,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20171020].[nzta_clean].[drivers_licence_register]
-
-	UNION ALL
-
-	SELECT DISTINCT snz_uid
-	,snz_nzta_uid
-	,2018 as year
-	,4 as month
-	,nzta_dlr_licence_issue_date as notification_date
-	,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20180420].[nzta_clean].[drivers_licence_register]
-
-	UNION ALL
-
-	SELECT DISTINCT snz_uid
-	,snz_nzta_uid
-	,2018 as year
-	,7 as month
-	,nzta_dlr_licence_issue_date as notification_date
-	,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20180720].[nzta_clean].[drivers_licence_register]
-
-	UNION ALL
-
-	SELECT DISTINCT snz_uid
-	,snz_nzta_uid
-	,2018 as year
-	,10 as month
-	,nzta_dlr_licence_issue_date as notification_date
-	,snz_idi_address_register_uid as address_uid
-	FROM [IDI_Clean_20181020].[nzta_clean].[drivers_licence_register]
-
-) as b
-ON a.snz_nzta_uid = b.snz_nzta_uid
-WHERE DATEADD(day, -90, DATEFROMPARTS([year],[month],1)) <= notification_date
-AND address_uid IS NOT NULL
-AND notification_date IS NOT NULL
+	,'NZTA' AS [source]
+	,'NO' AS [validation]
+	,1 AS [high_quality]
+FROM [IDI_Clean_20190420].[nzta_clean].[drivers_licence_register]
+WHERE snz_idi_address_register_uid IS NOT NULL
+AND nzta_dlr_licence_issue_date IS NOT NULL
 GO
 
 /* HNZ tenancies */
@@ -735,45 +649,55 @@ DROP VIEW [DL-MAA2016-15].[chh_hnz_notifications];
 GO
 
 CREATE VIEW [DL-MAA2016-15].chh_hnz_notifications AS
-SELECT d.snz_uid
-      ,CAST(a.[hnz_ths_snapshot_date] AS DATE) AS notification_date
-	  ,c.[snz_idi_address_register_uid] AS address_uid
-	  ,'HNZ' AS [source]
-	  ,'NO' AS [validation]
-FROM [IDI_Adhoc].[clean_read_HNZ].[adhoc_clean_tenancy_h_snapshot] as a
-LEFT JOIN [IDI_Adhoc].[clean_read_HNZ].[adhoc_clean_tenancy_snapshot] as b
-ON a.[hnz_ths_snapshot_date] = b.[hnz_ts_snapshot_date]
-AND a.[snz_household_uid] = b.[snz_household_uid]
-AND a.[snz_legacy_household_uid] = b. [snz_legacy_household_uid]
-LEFT JOIN [IDI_Adhoc].[clean_read_HNZ].[adhoc_clean_hs_dec15_mar16] as c
-ON b.[hnz_ts_snapshot_date] = c.[hnz_hs_snapshot_date]
-AND b.[snz_hnz_ts_house_uid] = c.[snz_house_uid] 
-AND b.[snz_hnz_ts_legacy_house_uid] = c.[snz_legacy_house_uid]
-LEFT JOIN [IDI_Clean_20181020].[security].[concordance]  as d
-ON a.snz_msd_uid = d.snz_msd_uid
+/* both new and legacy ids */
+SELECT DISTINCT
+	a.snz_uid
+	,CAST(a.hnz_ths_snapshot_date AS DATE) AS notification_date
+	,b.snz_idi_address_register_uid AS address_uid
+	,'HNZ' AS [source]
+	,'NO' AS [validation]
+	,1 AS [high_quality]
 
-WHERE c.snz_idi_address_register_uid IS NOT NULL
-AND d.snz_uid IS NOT NULL
-AND a.[hnz_ths_snapshot_date] IS NOT NULL
-GO
-
-/*
-The above HNZ tenancy notifications contain about 2 million records.
-Alternative code (below) returns about 5 million records.
-
-Need to check with Craig which code is prefered.
-
-SELECT 
-a.snz_uid
-,CAST(a.hnz_ths_snapshot_date AS DATE) AS notification_date
-,b.snz_idi_address_register_uid AS address_uid
-,'HNZ' AS [source]
-,'NO' AS [validation]
-
-FROM [IDI_Clean_20181020].[hnz_clean].[tenancy_household_snapshot] as a
-LEFT JOIN [IDI_Clean_20181020].[hnz_clean].[houses_snapshot] as b
+FROM [IDI_Clean_20190420].[hnz_clean].[tenancy_household_snapshot] as a
+INNER JOIN [IDI_Clean_20190420].[hnz_clean].[houses_snapshot] as b
 ON a.hnz_ths_snapshot_date = b.hnz_hs_snapshot_date 
 AND a.snz_household_uid = b.snz_household_uid 
 AND a.snz_legacy_household_uid = b.snz_legacy_household_uid
 WHERE b.snz_idi_address_register_uid IS NOT NULL
-*/
+
+UNION ALL
+
+/* new id but not legacy id */
+SELECT DISTINCT
+	a.snz_uid
+	,CAST(a.hnz_ths_snapshot_date AS DATE) AS notification_date
+	,b.snz_idi_address_register_uid AS address_uid
+	,'HNZ' AS [source]
+	,'NO' AS [validation]
+	,1 AS [high_quality]
+
+FROM [IDI_Clean_20190420].[hnz_clean].[tenancy_household_snapshot] as a
+INNER JOIN [IDI_Clean_20190420].[hnz_clean].[houses_snapshot] as b
+ON a.hnz_ths_snapshot_date = b.hnz_hs_snapshot_date 
+AND a.snz_household_uid = b.snz_household_uid 
+WHERE b.snz_idi_address_register_uid IS NOT NULL
+AND a.snz_legacy_household_uid IS NULL
+
+UNION ALL
+
+/* legacy id but not new id */
+SELECT DISTINCT
+	a.snz_uid
+	,CAST(a.hnz_ths_snapshot_date AS DATE) AS notification_date
+	,b.snz_idi_address_register_uid AS address_uid
+	,'HNZ' AS [source]
+	,'NO' AS [validation]
+	,1 AS [high_quality]
+
+FROM [IDI_Clean_20190420].[hnz_clean].[tenancy_household_snapshot] as a
+INNER JOIN [IDI_Clean_20190420].[hnz_clean].[houses_snapshot] as b
+ON a.hnz_ths_snapshot_date = b.hnz_hs_snapshot_date 
+AND a.snz_legacy_household_uid = b.snz_legacy_household_uid
+WHERE b.snz_idi_address_register_uid IS NOT NULL
+AND a.snz_household_uid IS NULL
+GO

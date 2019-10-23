@@ -1,7 +1,7 @@
-##################################################################################################################
+###############################################################################
 # Description: Prepare the data for household building
 #
-# Input: Prepared views from IDI Clean and Adhoc
+# Input: Prepared views from IDI Clean
 #
 # Output: SQL tables in the sandpit
 # 
@@ -11,7 +11,7 @@
 # 
 # Notes:
 # Uses dbplyr to translate R to SQL
-# Last recorded runtime = 15 minutes
+# Last recorded runtime = 15 minutes for load + 3 minutes for accuracy
 #
 # Editting:
 # To add new datasets to the address notification approach, create a view or table in the SQL script
@@ -21,33 +21,38 @@
 # Issues:
 # 
 # History (reverse order):
-# 2019-03-05 SA changed location views aresaved to IDI_UserCode
+# 2019-09-26 SA clean to minimal production code
+# 2019-08-13 SA updated to 2019-04-20 refresh
+# 2019-06-13 SA moved loading views into a for loop to reduce repetition
+# 2019-03-05 SA changed location views are saved to IDI_UserCode
 # 2018-11-07 SA swapped from tables to views
 # 2018-09-21 SA added all datasets produced by Craig
 # 2018-08-23 SA restructure to make adding data easier
 # 2018-08-22 SA v1
-##################################################################################################################
+###############################################################################
 
 ## source ----
 setwd(paste0("/home/STATSNZ/dl_sanastasia/Network-Shares/DataLabNas/",
              "MAA/MAA2016-15 Supporting the Social Investment Unit/constructing households/rprogs"))
 source('utility_functions.R')
+source('individual_address_analysis_functions.R')
 
 ## setup ----
 db_con_IDI_sandpit = create_database_connection(database = 'IDI_Sandpit')
 our_schema = "[IDI_Sandpit].[DL-MAA2016-15]"
 our_view = "[IDI_UserCode].[DL-MAA2016-15]"
+# parameters
 OUTPUT_TABLE = "chh_gathered_data"
+ACCURACY_WINDOW = 90
 
-## create tables ----
-
-columns_for_notifications = c("snz_uid", "notification_date", "address_uid", "source", "validation")
+## create table for output ----
 
 notifications_columns = list(snz_uid = "[int] NOT NULL",
                              notification_date = "[date] NOT NULL",
                              address_uid = "[int] NOT NULL",
                              source = "[varchar](25) NULL",
-                             validation = "[varchar](3) NOT NULL")
+                             validation = "[varchar](3) NOT NULL",
+                             high_quality = "[int] NULL")
 
 create_table(db_con_IDI_sandpit,
              schema = our_schema,
@@ -56,146 +61,56 @@ create_table(db_con_IDI_sandpit,
              OVERWRITE = TRUE)
 
 ## load each table withy key columns ----
-run_time_inform_user("building table connections")
+run_time_inform_user("building notification table")
 
-#### ACC ----
-acc = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                          tbl_name = "chh_acc_notifications")
+list_of_views_to_load <- c("chh_acc_notifications",
+                           "chh_ird_applied_notifications",
+                           "chh_ird_timestamp_notifications",
+                           "chh_moe_notifications",
+                           "chh_msd_residential_notifications",
+                           "chh_msd_partner_notifications",
+                           "chh_msd_child_notifications",
+                           "chh_msd_postal_notifications",
+                           "chh_moh_nhi_notifications",
+                           "chh_moh_pho_notifications",
+                           # "chh_census_ur_notifications",
+                           "chh_census_ur5_notifications",
+                           "chh_census_prev_notifications",
+                           # "chh_hes_notifications",
+                           # "chh_gss_notifications",
+                           # "chh_hlfs_notifications",
+                           "chh_nzta_mvr_notifications",
+                           "chh_nzta_dlr_notifications",
+                           "chh_hnz_notifications")
 
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, acc)
-run_time_inform_user("acc appended")
-  
-#### IRD applied date ----
-ird_applied = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                                  tbl_name = "chh_ird_applied_notifications")
+for(view in list_of_views_to_load){
+  this_view <- create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view, tbl_name = view)
+  append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, names(notifications_columns), this_view)
+  run_time_inform_user(paste0(view," appended"))
+}
 
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, ird_applied)
-run_time_inform_user("ird_applied appended")
+run_time_inform_user("load complete, compressing")
+compress_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE)
+run_time_inform_user("compressed")
 
-#### IRD timestamped date ----
-ird_timestamped = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                                      tbl_name = "chh_ird_timestamp_notifications")
+## table of accuracy measures ----
 
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, ird_timestamped)
-run_time_inform_user("ird_timestamped appended")
+run_time_inform_user("obtain accuracy measures")
+address_notifications = create_access_point(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE)
+person_details = create_access_point(db_con_IDI_sandpit, "[IDI_Clean_20190420].[data]", "personal_detail")
+accuracy_measures = obtain_accuracy_measures(address_notifications, person_details, ACCURACY_WINDOW)
+accuracy_measures = write_to_database(accuracy_measures, db_con_IDI_sandpit, our_schema,
+                                      "chh_accuracy_measures", OVERWRITE = TRUE)
 
-#### MOE ----
-moe = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                          tbl_name = "chh_moe_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, moe)
-run_time_inform_user("moe appended")
-
-#### MSD residential location ----
-msd_residential = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                                      tbl_name = "chh_msd_residential_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, msd_residential)
-run_time_inform_user("msd_residential appended")
-
-#### MSD partner residential location ----
-msd_partner = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                                      tbl_name = "chh_msd_partner_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, msd_partner)
-run_time_inform_user("msd_partner appended")
-
-#### MSD child residential location ----
-msd_child = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                                      tbl_name = "chh_msd_child_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, msd_child)
-run_time_inform_user("msd_child appended")
-
-#### MSD postal location ----
-msd_postal = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                                 tbl_name = "chh_msd_postal_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, msd_postal)
-run_time_inform_user("msd_postal appended")
-
-#### MOH nhi address ----
-moh_nhi = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                              tbl_name = "chh_moh_nhi_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, moh_nhi)
-run_time_inform_user("moh_nhi appended")
-
-#### MOH pho address ----
-moh_pho = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                              tbl_name = "chh_moh_pho_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, moh_pho)
-run_time_inform_user("moh_pho appended")
-
-#### SNZ census usual residence ----
-snz_census_UR = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                                    tbl_name = "chh_census_ur_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, snz_census_UR)
-run_time_inform_user("snz_census_UR appended")
-
-#### SNZ census usual residence 5 years ago ----
-snz_census_UR5 = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                                     tbl_name = "chh_census_ur5_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, snz_census_UR5)
-run_time_inform_user("snz_census_UR5 appended")
-
-#### SNZ census years at current address ----
-snz_census_prev = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                                      tbl_name = "chh_census_prev_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, snz_census_prev)
-run_time_inform_user("snz_census_prev appended")
-
-#### SNZ hes ----
-snz_hes = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                              tbl_name = "chh_hes_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, snz_hes)
-run_time_inform_user("snz_hes appended")
-
-#### SNZ gss ----
-snz_gss = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                              tbl_name = "chh_gss_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, snz_gss)
-run_time_inform_user("snz_gss appended")
-
-#### SNZ hlfs ----
-snz_hlfs = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                               tbl_name = "chh_hlfs_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, snz_hlfs)
-run_time_inform_user("snz_hlfs appended")
-
-#### NZTA motor vehicle registrations ----
-nzta_mvr = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                               tbl_name = "chh_nzta_mvr_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, nzta_mvr)
-run_time_inform_user("nzta_mvr appended")
-
-#### NZTA drivers license registrations ----
-nzta_dlr = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                               tbl_name = "chh_nzta_dlr_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, nzta_dlr)
-run_time_inform_user("nzta_dlr appended")
-
-#### MSD HNZ tenancies ----
-msd_hnz = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                              tbl_name = "chh_hnz_notifications")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, msd_hnz)
-run_time_inform_user("msd_hnz appended")
-
-#### tenancies from bond records ----
+## load non-residential spells ----
 #
-# currently not prepared
+# Death, extended time overseas, and extended time in prison
+# were used as indicators of non-residential spells.
+#
+# However their inclusion failed to improve accuracy,
+# Hence they were removed.
 
 ## Complete ----
+
+close_database_connection(db_con_IDI_sandpit)
 run_time_inform_user("GRAND COMPLETION")
-
-

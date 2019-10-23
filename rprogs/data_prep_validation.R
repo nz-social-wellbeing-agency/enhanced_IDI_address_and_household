@@ -38,13 +38,13 @@ OUTPUT_TABLE = "chh_household_validation"
 
 ## create tables ----
 
-columns_for_notifications = c("snz_uid", "notification_date", "address_uid", "household_uid", "source")
-
 notifications_columns = list(snz_uid = "[int] NOT NULL",
                              notification_date = "[date] NOT NULL",
                              address_uid = "[int] NOT NULL",
                              household_uid = "[int] NOT NULL",
                              source = "[varchar](25) NULL")
+
+columns_for_notifications = names(notifications_columns)
 
 create_table(db_con_IDI_sandpit,
              schema = our_schema,
@@ -55,35 +55,27 @@ create_table(db_con_IDI_sandpit,
 ## load each table withy key columns ----
 run_time_inform_user("building table connections")
 
-#### SNZ census usual residence ----
-snz_census_UR = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                                    tbl_name = "chh_census_validation")
+list_of_views_to_load <- c("chh_census_validation",
+                           "chh_hes_validation",
+                           "chh_gss_validation",
+                           "chh_hlfs_validation",
+                           "chh_census_composition")
 
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, snz_census_UR)
-run_time_inform_user("snz_census_UR appended")
+for(view in list_of_views_to_load){
+  this_view <- create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view, tbl_name = view)
+  append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, this_view)
+  run_time_inform_user(paste0(view," appended"))
+}
 
-#### SNZ hes ----
-snz_hes = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                              tbl_name = "chh_hes_validation")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, snz_hes)
-run_time_inform_user("snz_hes appended")
-
-#### SNZ gss ----
-snz_gss = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                              tbl_name = "chh_gss_validation")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, snz_gss)
-run_time_inform_user("snz_gss appended")
-
-#### SNZ hlfs ----
-snz_hlfs = create_access_point(db_connection = db_con_IDI_sandpit, schema = our_view,
-                               tbl_name = "chh_hlfs_validation")
-
-append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, columns_for_notifications, snz_hlfs)
-run_time_inform_user("snz_hlfs appended")
+run_time_inform_user("indexing")
+create_clustered_index(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE, "snz_uid")
+run_time_inform_user("load complete, compressing")
+compress_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE)
+run_time_inform_user("compressed")
 
 ## Complete ----
+
+close_database_connection(db_con_IDI_sandpit)
 run_time_inform_user("GRAND COMPLETION")
 
 

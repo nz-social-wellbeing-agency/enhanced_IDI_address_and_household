@@ -5,7 +5,7 @@
 #'
 #' Output: Measures of coverage and accuracy, by groups
 #' 
-#' Author: Simon Anastasiadis, Craig Wright
+#' Author: Simon Anastasiadis, Craig Wright, Akilesh Chokkanathapuram
 #' 
 #' Dependencies: utility_functions for dbplyr
 #' 
@@ -16,6 +16,9 @@
 #' Issues:
 #' 
 #' History (reverse order):
+#' 2019-10-02 SA fixed bug duplicating number of output addresses
+#' 2019-09-26 SA clean to minimal production code
+#' 2019-07-09 SA addition of hhld validation code
 #' 2018-11-08 SA v1
 #' 2018-10-09 SA v0
 #'#################################################################################################################
@@ -58,204 +61,160 @@ convert_notifs_to_validation_spells = function(address_notifications, accuracy_t
   return(address_spells)
 }
 
-#' Compare truth and spells
-#'
-compare_truth_and_spells = function(truth_tbl, spells_tbl){
-  
-  # we use true_date %in% [start_date, end_date)
-  # because the notification date is assumed to be the move in date
-  comparison = truth_tbl %>%
-    left_join(spells_tbl, by = "snz_uid", suffix = c("_truth","")) %>%
-    filter(!is.na(notification_date_truth),
-           !is.na(address_uid_truth),
-           (is.na(notification_date) | notification_date <= notification_date_truth),
-           (is.na(notification_date) | notification_date_truth < next_date)) %>%
-    mutate(covered = ifelse(!is.na(address_uid), 1, 0),
-           matched = ifelse(address_uid == address_uid_truth, 1, 0)) %>%
-    select(snz_uid, notification_date, address_uid, source, validation, next_date,
-           notification_date_truth, address_uid_truth, source_truth, household_uid,
-           covered, matched)
-  
-  return(comparison)
-}
-
 #' Summarise individual level accuracy and coverage
 #' - might need to include subsetting to spine or residential population
 #' 
-summarise_individual_accuracy = function(comparison){
-  
-  # accuracy by source
-  source_result = comparison %>%
-    ungroup() %>%
-    group_by(snz_uid, notification_date_truth, source_truth) %>%
-    summarise(accuracy_num = mean(matched, na.rm = TRUE),
-              coverage_num = mean(covered, na.rm = TRUE),
-              record_num = n()) %>%
-    ungroup() %>%
-    group_by(source_truth) %>%
-    summarise(accuracy_num = sum(accuracy_num, na.rm = TRUE),
-              coverage_num = sum(coverage_num, na.rm = TRUE),
-              record_num = sum(record_num, na.rm = TRUE)) %>%
-    mutate(accuracy = ifelse(coverage_num == 0, NA, 1.0 * accuracy_num / coverage_num),
-           coverage = ifelse(record_num == 0, NA, 1.0 * coverage_num / record_num)) %>%
-    mutate(eff_accuracy = accuracy * coverage,
-           eff_error = (1 - accuracy) * coverage,
-           eff_missing = 1 - coverage)
-  
-  
-  
-  save_to_sql(sql_render(source_result), "individual_accuracy")
-  
-  source_result = source_result %>% collect() %>%
-    arrange(source_truth)
-  
-  # overall accuracy
-  overall_result = source_result %>%
-    ungroup() %>%
-    summarise(accuracy_num = sum(accuracy_num, na.rm = TRUE),
-              coverage_num = sum(coverage_num, na.rm = TRUE),
-              record_num = sum(record_num, na.rm = TRUE)) %>%
-    mutate(accuracy = ifelse(coverage_num == 0, NA, 1.0 * accuracy_num / coverage_num),
-           coverage = ifelse(record_num == 0, NA, 1.0 * coverage_num / record_num)) %>%
-    mutate(eff_accuracy = accuracy * coverage,
-           eff_error = (1 - accuracy) * coverage,
-           eff_missing = 1 - coverage)
-  
-  return(list(overall_result = overall_result, source_result = source_result))
-}
+#' Removed as integrated with household accuracy in later version.
 
-#' Summarise household level accuracy and coverage
-#' - might need to include subsetting to spine or residential population
+#' Attach to each validation/truth record
+#' the admin record that immediately preceeds it.
 #' 
-summarise_household_accuracy = function(comparison){
+#' Assumes:
+#' 1) only truth in truth_table and only admin in admin_table
+#' 2) all values in tables are non-null
+#' 
+#' by Akilesh CHOKKANATHAPURAM
+#'
+connect_truth_with_admin_to_compare <- function(admin_table, truth_table){
+  # The columns required in each of the table are validated here.
+  required_columns_source_table <- c("snz_uid", "address_uid", "notification_date")
+  required_columns_truth_table <- c(required_columns_source_table, "source")
   
-  # accuracy by source
-  source_result = comparison %>%
-    ungroup() %>%
-    group_by(snz_uid, notification_date_truth, source_truth, address_uid_truth, household_uid) %>%
-    summarise(accuracy_num = mean(matched, na.rm = TRUE),
-              coverage_num = mean(covered, na.rm = TRUE),
-              record_num = n()) %>%
-    ungroup() %>%
-    group_by(source_truth, notification_date_truth, address_uid_truth, household_uid) %>%
-    summarise(accuracy_num = sum(accuracy_num, na.rm = TRUE),
-              coverage_num = sum(coverage_num, na.rm = TRUE),
-              record_num = sum(record_num, na.rm = TRUE)) %>%
-    mutate(accuracy = ifelse(coverage_num == 0, NA, 1.0 * accuracy_num / coverage_num)) %>%
-    mutate(accuracy_type = ifelse(accuracy > 1.0, "superperfect", NA)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type)
-                                  & accuracy == 1.0, "perfect", accuracy_type)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type)
-                                  & accuracy >= 0.5, "partial", accuracy_type)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type), "poor", accuracy_type)) %>%
-    ungroup() %>%
-    group_by(source_truth, accuracy_type) %>%
-    summarise(count = n())
+  # Validate inputs
+  assert(table_contains_required_columns(admin_table, required_columns_source_table),
+         "Source table provided lacks required column(s)")
+  assert(table_contains_required_columns(truth_table, required_columns_truth_table),
+         "Truth table provided lacks required column(s)")
+  assert(is.tbl(admin_table), "input must be of type table")
+  assert(is.tbl(truth_table), "input must be of type table")
   
-  save_to_sql(sql_render(source_result), "household_accuracy")
-   
-  source_result = source_result %>% collect()
+  # ACHOKKANATHAPURAM WAS HERE
+  # Combine truth and admin tables - find date of latest admin notification
+  truth_w_latest_admin_date <- truth_table %>%
+    left_join(admin_table, by = "snz_uid", suffix = c("_truth", "_admin")) %>%
+    filter(notification_date_admin < notification_date_truth) %>% # struct inequality
+    group_by(snz_uid, source_truth, address_uid_truth, notification_date_truth) %>%
+    summarize(notification_date = max(notification_date_admin, na.rm = TRUE))
+  # logic behind strict inequality: when new information arrives (e.g. validation notifications)
+  # we first check whether existing/previous dates agree with it before adding the new notification.
+  # Another way to think of it is: validation happens at 9am and address change happens at 11:59pm.
   
-  # overall accuracy
-  overall_result = source_result %>%
-    ungroup() %>%
-    group_by(accuracy_type) %>%
-    summarise(count = sum(count)) %>%
-    spread(key = accuracy_type, value = count)
+  # Fetch the admin record matching the latest date
+  truth_w_latest_admin <- truth_w_latest_admin_date %>%
+    inner_join(admin_table, by = c("snz_uid", "notification_date"), suffix = c("", "_final")) %>%
+    mutate(match_status = if (address_uid_truth == address_uid) 1 else 0)
   
-  source_result = source_result  %>% spread(key = accuracy_type, value = count)
+  # truth_w_latest_admin (table 2) is significant table and sees multiple re-use
+  # writing this table for reuse improves runtime from 11 min to 1.5 min
   
-  return(list(overall_result = overall_result, source_result = source_result))
+  # output for writing & reuse
+  return(truth_w_latest_admin)
 }
 
-#' varient of summarise household accuracy to better match SNZ process
+#' Compare admin and truth (SNZ) address tables by household
+#' and construct triple-P classification by source.
+#' 
+#' Assumes:
+#' 1) only truth in truth_table and only admin in admin_table
+#' 2) all values in tables are non-null
+#' 
+#' by Akilesh CHOKKANATHAPURAM
 #'
-summarise_household_accuracy_NEW = function(db_connection, comparison){
+address_validation_algorithm <- function(truth_w_latest_admin){
+  # compare in both directions
+  # ACHOKKANATHAPURAM WAS HERE
+  compare_against_truth <- one_way_comparison(truth_w_latest_admin, "address_uid_truth")
+  compare_against_admin <- one_way_comparison(truth_w_latest_admin, "address_uid")
   
-  # remove non-coverage
-  # comparison = comparison %>%
-  #   filter(covered == 1)
+  # reorganizing the query results to perform an efficient join on address_uid
+  # the join also suffixes the tables with _truth_1 and _admin_1 respectively for truth and admin table variables
+  both_comparisons <- compare_against_truth %>%
+    full_join(compare_against_admin, by = c("source", "address_uid"), suffix = c("_truth", "_admin"))
   
-  # accuracy in each direction
-  result_by_truth = comparison %>%
-    ungroup() %>%
-    group_by(snz_uid, notification_date_truth, source_truth, address_uid_truth, household_uid) %>%
-    summarise(accuracy_num = mean(matched, na.rm = TRUE),
-              coverage_num = mean(covered, na.rm = TRUE)) %>%
-    ungroup() %>%
-    group_by(source_truth, notification_date_truth, address_uid_truth, household_uid) %>%
-    summarise(accuracy_num = sum(accuracy_num, na.rm = TRUE),
-              coverage_num = sum(coverage_num, na.rm = TRUE)) %>%
-    mutate(accuracy = ifelse(coverage_num == 0, NA, 1.0 * accuracy_num / coverage_num)) %>%
-    mutate(accuracy_type = ifelse(accuracy > 1.0, "superperfect", NA)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type)
-                                  & accuracy == 1.0, "perfect", accuracy_type)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type)
-                                  & accuracy >= 0.5, "partial", accuracy_type)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type), "poor", accuracy_type)) %>%
-    select("source_truth", "notification_date_truth", "address_uid_truth", "household_uid", "accuracy_type")
+  # ACHOKKANATHAPURAM WAS HERE
+  # Doing a combination assignment for Perfect, Partial and Poor based on the results from the previous sub-queries.
+  # Each address gets the worst of the two values.
+  final_classification <- both_comparisons %>% 
+    mutate(final_stat = NA) %>%
+    mutate(final_stat = ifelse(is.na(final_stat)
+                               & (stat_truth == 'POOR' | stat_admin == 'POOR'), 'POOR', final_stat)) %>%
+    mutate(final_stat = ifelse(is.na(final_stat)
+                               & (stat_truth == 'PARTIAL' | stat_admin == 'PARTIAL'), 'PARTIAL', final_stat)) %>%
+    mutate(final_stat = ifelse(is.na(final_stat)
+                               & (stat_truth == 'PERFECT' & stat_admin == 'PERFECT'), 'PERFECT', final_stat)) %>%
+    group_by(source, final_stat) %>%
+    summarise(total_count = n())
+  # appologies the above is clumsy, case_when would be more elegant but does not work on some versions of dbpylr
+  # final_stat = case_when(
+  #   stat_truth == 'PERFECT' & stat_admin == 'PERFECT' ~ 'PERFECT',
+  #   stat_truth == 'PERFECT' & stat_admin == 'PARTIAL' ~ 'PARTIAL',
+  #   stat_truth == 'PERFECT' & stat_admin == 'POOR' ~ 'POOR',
+  #   stat_truth == 'PARTIAL' & stat_admin == 'PERFECT' ~ 'PARTIAL',
+  #   stat_truth == 'PARTIAL' & stat_admin == 'PARTIAL' ~ 'PARTIAL',
+  #   stat_truth == 'PARTIAL' & stat_admin == 'POOR' ~ 'POOR',
+  #   stat_truth == 'POOR' & stat_admin == 'PERFECT' ~ 'POOR',
+  #   stat_truth == 'POOR' & stat_admin == 'PARTIAL' ~ 'POOR',
+  #   stat_truth == 'POOR' & stat_admin == 'POOR' ~ 'POOR'
+  # )
   
-  result_by_truth = write_for_reuse(db_connection, our_schema, "chh_val_result_by_truth",
-                                    result_by_truth, index_columns = "household_uid")
+  # load into R
+  save_to_sql(sql_render(final_classification), "household_accuracy")
+  final_classification <- final_classification %>% collect()
+  run_time_inform_user("data transfered from SQL into R")
   
-  result_by_admin = comparison %>%
-    ungroup() %>%
-    group_by(snz_uid, notification_date_truth, source_truth, address_uid, household_uid) %>%
-    summarise(accuracy_num = mean(matched, na.rm = TRUE),
-              coverage_num = mean(covered, na.rm = TRUE)) %>%
-    ungroup() %>%
-    group_by(source_truth, notification_date_truth, address_uid, household_uid) %>%
-    summarise(accuracy_num = sum(accuracy_num, na.rm = TRUE),
-              coverage_num = sum(coverage_num, na.rm = TRUE)) %>%
-    mutate(accuracy = ifelse(coverage_num == 0, NA, 1.0 * accuracy_num / coverage_num)) %>%
-    mutate(accuracy_type = ifelse(accuracy > 1.0, "superperfect", NA)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type)
-                                  & accuracy == 1.0, "perfect", accuracy_type)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type)
-                                  & accuracy >= 0.5, "partial", accuracy_type)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type), "poor", accuracy_type)) %>%
-    select("source_truth", "notification_date_truth", "address_uid", "household_uid", "accuracy_type")
+  # Result per source 
+  # mutated to calculate percentage results and arrange the results in the order Perfect, Partial and Poor.
+  # ACHOKKANATHAPURAM WAS HERE
+  total_by_source <- final_classification %>%
+    group_by(source) %>%
+    summarise(sum_total_count = sum(total_count, na.rm = TRUE)) %>%
+    select(source, sum_total_count)
+  
+  summary_by_source <- final_classification %>%
+    left_join(total_by_source, by = "source") %>%
+    mutate(percent_stat = total_count / sum_total_count) %>%
+    arrange(source, final_stat) %>%
+    select(source, final_stat, total_count, percent_stat)
+  
+  
+  #the final results with overall numbers from table_12 is returned for quick reference. 
+  return(summary_by_source)
+}
 
-  result_by_admin = write_for_reuse(db_connection, our_schema, "chh_val_result_by_admin",
-                                    result_by_admin, index_columns = "household_uid")
+#' Compare address results again one of the address columns (admin OR truth)
+#'
+#' by Akilesh Chokkanathapuram
+#'
+one_way_comparison <- function(input_table, address_column){
+  # checks
+  assert(is.tbl(input_table), "input table format not recognised")
+  assert(is.character(address_column), "address column for comparison must be text string")
+  required_columns = c(address_column, "source_truth", "match_status")
+  assert(table_contains_required_columns(input_table, required_columns), "input table lacks required columns")
   
-  # result_by_admin = comparison %>%
-  #   select("source_truth", "notification_date_truth", "address_uid", "household_uid") %>%
-  #   distinct() %>%
-  #   mutate(accuracy_type = "perfect")
+  # standardise input column name
+  input_table <- input_table %>% mutate(address_uid = !!sym(address_column))
   
-  # accuracy by source
-  source_result = result_by_admin %>%
-    right_join(result_by_truth, suffix = c("_t","_a"),
-               by = c("source_truth", "notification_date_truth", "household_uid",
-                      "address_uid" = "address_uid_truth")) %>%
-    mutate(accuracy_type = ifelse(accuracy_type_t == "superperfect"
-                                  | accuracy_type_a == "superperfect", "superperfect", NA)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type)
-                                  & (accuracy_type_t == 'poor'
-                                     | accuracy_type_a == 'poor'), 'poor', accuracy_type)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type)
-                                  & (accuracy_type_t == 'partial'
-                                     | accuracy_type_a == 'partial'), 'partial', accuracy_type)) %>%
-    mutate(accuracy_type = ifelse(is.na(accuracy_type)
-                                  & (accuracy_type_t == 'perfect'
-                                     | accuracy_type_a == 'perfect'), 'perfect', accuracy_type)) %>%
-    ungroup() %>%
-    group_by(source_truth, accuracy_type) %>%
-    summarise(count = n())
-
-  save_to_sql(sql_render(source_result), "household_accuracy")
+  # total_residents = the total residents in a truth table address
+  # matched_residents = the total residents who have a matching address in the admin table
+  # percent_match = percentage match based on the above numbers.
+  # ACHOKKANATHAPURAM WAS HERE
+  ready_for_classification <- input_table %>%
+    group_by(source_truth, address_uid) %>%
+    summarize(total_residents = n(),
+              matched_residents = sum(match_status, na.rm = TRUE)) %>%
+    mutate(percent_match = (matched_residents / total_residents))
   
-  source_result = source_result %>% collect()
+  # results are mutate to form 'triple-P categories'
+  # A 100% matched household is PERFECT
+  # 50-99 inclusive is PARTIAL
+  # and less than 50 is POOR.
+  # Any households missing a category are also termed POOR to reduce algorithmic errors
+  ppp_classified <- ready_for_classification %>%
+    mutate(stat = if(percent_match == 1) "PERFECT"
+           else if(percent_match >= 0.5) "PARTIAL"
+           else "POOR") %>%
+    select(source = source_truth, address_uid, total_residents, matched_residents, percent_match, stat)
   
-  # overall accuracy
-  overall_result = source_result %>%
-    ungroup() %>%
-    group_by(accuracy_type) %>%
-    summarise(count = sum(count)) %>%
-    spread(key = accuracy_type, value = count)
-  
-  source_result = source_result  %>% spread(key = accuracy_type, value = count)
-  
-  return(list(overall_result = overall_result, source_result = source_result))
+  return(ppp_classified)
 }
