@@ -11,7 +11,7 @@ It is necessary to have an IDI project if you wish to run the code. Visit the St
 
 The R code makes use of several publicly available R packages. The version of some of these packages may be important. This analysis was conducted using `odbc` version 1.1.5, `DBI` version 0.8.0, `dplyr` version 0.7.6, and `dbplyr` version 1.2.2.
 
-If applying this code to another environment other than the IDI, several features of the environment are required: First, R and some database manager (such as SQL Server) must be installed. Second, these must be configured such that R can pass commands to, and and retrieve results from, the database. Once the environment is configured correctly, then adjustments to the code in response to the new environment can be considered.
+If applying this code to another environment other than the IDI, several features of the environment are required: First, R and some database manager (such as SQL Server) must be installed. Second, these must be configured such that R can pass commands to, and retrieve results from, the database. Once the environment is configured correctly, then adjustments to the code in response to the new environment can be considered.
 
 ## Folder descriptions
 This repositry contains all the core code to assemble the data and run the analysis.
