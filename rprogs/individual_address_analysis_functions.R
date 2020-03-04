@@ -141,16 +141,28 @@ partition_out_unsupported_simultaneous = function(address_notifications, DAYS_SU
               discard = unsupported_simultaneous_notifications))
 }
 
+#' Add indicator for notification preceeded by high quality notification
+#' 
+preceeded_by_high_qulaity = function(address_notifications){
+  # is notif preceeded by any high quality notifications
+  address_notif_with_indicator = address_notifications %>%
+    inner_join(address_notifications, by = "snz_uid", suffix = c("","_H")) %>%
+    filter(notification_date_H <= notification_date) %>%
+    group_by(snz_uid, address_uid, notification_date, source, validation, high_quality) %>%
+    summarise(preceeding_high_qual = sum(high_quality_H, na.rm = TRUE)) %>%
+    mutate(preceeding_high_qual = ifelse(preceeding_high_qual > 0, 1, 0))
+}
+
 #' Partition out low quality notifications
 #'
 partition_out_low_quality = function(address_notifications, DAYS_SPREAD){
   
   # low quality notifications
   low_qual = address_notifications %>%
-    filter(high_quality == 0 & validation == "NO")
+    filter(high_quality == 0 & validation == "NO" & preceeding_high_qual == 1)
   # high quality notifications
   high_qual = address_notifications %>%
-    filter(high_quality == 1 | validation == "YES")
+    filter(high_quality == 1 | validation == "YES" | preceeding_high_qual == 0)
   
   # spread high quality to nearby low quality
   spread = low_qual %>%
@@ -167,13 +179,13 @@ partition_out_low_quality = function(address_notifications, DAYS_SPREAD){
   
   # low quality notifications
   low_quality_notifs = address_notifications %>%
-    filter(high_quality == 0 & validation == "NO") %>%
+    filter(high_quality == 0 & validation == "NO" & preceeding_high_qual == 1) %>%
     select(snz_uid, notification_date, address_uid, source, validation) %>%
     mutate(replaced = "lower quality")
   
   # high quality notifications
   high_quality_notifs = address_notifications %>%
-    filter(high_quality == 1 | validation == "YES")
+    filter(high_quality == 1 | validation == "YES" | preceeding_high_qual == 0)
   
   # return
   return(list(keep = high_quality_notifs,

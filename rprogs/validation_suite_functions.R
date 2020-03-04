@@ -91,7 +91,7 @@ connect_truth_with_admin_to_compare <- function(admin_table, truth_table){
   # ACHOKKANATHAPURAM WAS HERE
   # Combine truth and admin tables - find date of latest admin notification
   truth_w_latest_admin_date <- truth_table %>%
-    left_join(admin_table, by = "snz_uid", suffix = c("_truth", "_admin")) %>%
+    inner_join(admin_table, by = "snz_uid", suffix = c("_truth", "_admin")) %>%
     filter(notification_date_admin < notification_date_truth) %>% # struct inequality
     group_by(snz_uid, source_truth, address_uid_truth, notification_date_truth) %>%
     summarize(notification_date = max(notification_date_admin, na.rm = TRUE))
@@ -129,7 +129,7 @@ address_validation_algorithm <- function(truth_w_latest_admin){
   # reorganizing the query results to perform an efficient join on address_uid
   # the join also suffixes the tables with _truth_1 and _admin_1 respectively for truth and admin table variables
   both_comparisons <- compare_against_truth %>%
-    full_join(compare_against_admin, by = c("source", "address_uid"), suffix = c("_truth", "_admin"))
+    inner_join(compare_against_admin, by = c("source", "address_uid"), suffix = c("_truth", "_admin"))
   
   # ACHOKKANATHAPURAM WAS HERE
   # Doing a combination assignment for Perfect, Partial and Poor based on the results from the previous sub-queries.

@@ -16,6 +16,7 @@ Notes:
 Issues:
  
 History (reverse order):
+2020-02-24 SA updated to 2019-10-20 refresh
 2019-08-13 SA updated to 2019-04-20 refresh
 2019-08-09 SA v1
 ******************************************************************************************************************/
@@ -35,7 +36,7 @@ SELECT snz_uid
 	,'9999-01-01' AS [end_date]
 	,'dia_deaths' AS [source]
 	,1000000 AS duration
-FROM IDI_Clean_20190420.dia_clean.deaths
+FROM IDI_Clean_20191020.dia_clean.deaths
 WHERE dia_dth_death_year_nbr >= 2001
 AND dia_dth_death_year_nbr IS NOT NULL
 AND dia_dth_death_month_nbr IS NOT NULL
@@ -52,7 +53,7 @@ SELECT snz_uid
 	,pos_ceased_date AS [end_date]
 	,'overseas' AS [source]
 	,DATEDIFF(DAY, pos_applied_date, pos_ceased_date) AS duration
-FROM IDI_Clean_20190420.data."person_overseas_spell"
+FROM IDI_Clean_20191020.data."person_overseas_spell"
 WHERE pos_applied_date IS NOT NULL
 AND pos_applied_date >= '2001-01-01'
 AND pos_first_arrival_ind = 'n'
@@ -69,7 +70,7 @@ SELECT snz_uid
 	,cor_mmp_period_end_date AS [end_date]
 	,'prison' AS [source]
 	,DATEDIFF(DAY, cor_mmp_period_start_date, cor_mmp_period_end_date) AS duration
-FROM IDI_Clean_20190420.cor_clean."ov_major_mgmt_periods"
+FROM IDI_Clean_20191020.cor_clean."ov_major_mgmt_periods"
 WHERE cor_mmp_mmc_code = 'PRISON'
 AND cor_mmp_period_start_date IS NOT NULL
 AND cor_mmp_period_end_date IS NOT NULL

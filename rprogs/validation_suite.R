@@ -39,7 +39,7 @@ library(xlsx)
 
 # user settings
 DEVELOPMENT_MODE = FALSE
-REFRESH_SCHEMA = "[IDI_Clean_20190420].[data]"
+REFRESH_SCHEMA = "[IDI_Clean_20191020].[data]"
 EST_RESIDENTIAL_POP = "snz_res_pop"
 
 # input tables
@@ -57,6 +57,7 @@ INDIV_MATCH = "chh_individual_matched"
 ## setup ----
 db_con_IDI_sandpit = create_database_connection(database = "IDI_Sandpit")
 our_schema = "[IDI_Sandpit].[DL-MAA2016-15]"
+our_view = "[IDI_UserCode].[DL-MAA2016-15]"
 purge_tables_by_prefix(db_con_IDI_sandpit, our_schema, "chh_val")
 
 ## create output tables ----
@@ -64,7 +65,7 @@ purge_tables_by_prefix(db_con_IDI_sandpit, our_schema, "chh_val")
 INDIV_MATCH_COLS = list(snz_uid = "[int] NOT NULL",
                         notification_date_truth = "[date] NOT NULL",
                         source_truth = "[varchar](25) NULL",
-                        match_status = "[int] NOT NULL",
+                        match_status = "[int] NULL",
                         phase = "[int] NOT NULL")
 
 create_table(db_con_IDI_sandpit,

@@ -23,9 +23,9 @@
 #'#############################################################################
 
 # connection details
-DEFAULT_SERVER <- "server.domain.name"
-DEFAULT_DATABASE <- "DB_NAME"
-DEFAULT_PORT <- NA
+DEFAULT_SERVER <- 
+DEFAULT_DATABASE <- 
+DEFAULT_PORT <- 
 # DO NOT RELEASE THESE VALUES
 
 # error if connection details are missing
@@ -160,7 +160,7 @@ create_access_point <- function(db_connection, schema, tbl_name){
 #' Returns a connection to the new table.
 #' 
 #' For complex or extended analyses, this is recommended as it reduces
-#' the complexity of the underlying SQL query that defines the manipulated
+#' the complixity of the underlying SQL query that defines the manipulated
 #' table.
 #' 
 write_for_reuse <- function(db_connection, schema, tbl_name, tbl_to_save, index_columns = NA){
@@ -520,13 +520,11 @@ create_view <- function(tbl_name, db_connection, schema, view_name, OVERWRITE = 
 
 #' Copy R table to SQL
 #' 
-#' The inbuilt dbplyr copy_to function does not appear to work in our set-up.
+#' The inbuild dbplyr copy_to function does not appear to work in our setup.
 #' Worse, it caused errors/locking, preventing other users who are using the
 #' same connection method until their R session is restarted.
 #' 
 #' Hence we implement a established work around using the DBI package.
-#' This is a revision of the original function (in previous versions),
-#' and uses different functionality to simplify the process.
 #' 
 copy_r_to_sql <- function(db_connection, schema, sql_table_name, r_table_name, OVERWRITE = FALSE){
   no_special_characters(schema)

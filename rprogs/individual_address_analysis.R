@@ -52,10 +52,10 @@ OUTPUT_REFINED = "chh_individual_refined"
 OUTPUT_CHANGES = "chh_address_changes"
 # tuning parameters
 LATEST_DATE = '2019-12-31'
-DAYS_SUPPORT = 720
-DAYS_SPREAD = 60
-MAX_GAP_WIDTH = 720
-SUPPORT_WITHIN_DAYS = 180
+DAYS_SUPPORT = 360
+DAYS_SPREAD = 150
+MAX_GAP_WIDTH = 360
+SUPPORT_WITHIN_DAYS = 210
 
 ## setup ----
 db_con_IDI_sandpit = create_database_connection(database = "IDI_Sandpit")
@@ -136,7 +136,7 @@ for(jj in modulo){
   if(SQL_MODE){ rebuild_connection() }
   
   ## exclude unsupported simultaneous notifications ----
-  
+
   run_time_inform_user("---- exclude unsupported simult notifs ----")
   
   out = partition_out_unsupported_simultaneous(address_notifications, DAYS_SUPPORT)
@@ -150,7 +150,11 @@ for(jj in modulo){
   
   run_time_inform_user("---- exclude unsupported low qual notifs ----")
   
-  out = partition_out_low_quality(address_notifications, DAYS_SPREAD)
+  notifs_with_indicator = preceeded_by_high_qulaity(address_notifications)
+  notifs_with_indicator = write_for_reuse(db_con_IDI_sandpit, our_schema, "chh_tmp_notifs_preceeded_by_hq",
+                                          notifs_with_indicator, "snz_uid")
+  
+  out = partition_out_low_quality(notifs_with_indicator, DAYS_SPREAD)
   address_notifications = out$keep
   low_quality_notifs = out$discard
   
@@ -210,7 +214,6 @@ for(jj in modulo){
 
 ## completion ----
 
-purge_tables_by_prefix(db_con_IDI_sandpit, our_schema, "chh_tmp")
 if(!DEVELOPMENT_MODE){
   compress_table(db_con_IDI_sandpit, our_schema, OUTPUT_REPLACED)
   compress_table(db_con_IDI_sandpit, our_schema, OUTPUT_REFINED)

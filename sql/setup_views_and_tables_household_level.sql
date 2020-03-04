@@ -11,12 +11,13 @@ Dependencies:
  
 Notes:
 1) Uses history refreshes for some versioning
-2) Currently locked to 2019-04-20 refersh
+2) Currently locked to 2019-10-20 refersh
 3) Required columns: snz_uid, notification_date, address_uid, household_uid, source
  
 Issues:
  
 History (reverse order):
+2020-02-24 SA updated to 2019-10-20 refresh
 2019-08-13 SA updated to 2019-04-02 refresh
 2019-03-05 SA views are now saved in IDI_UserCode, several tables moved to IDI_Adhoc
 2018-11-07 SA v0
@@ -37,8 +38,8 @@ SELECT DISTINCT a.[snz_uid]
 	  ,a.[snz_idi_address_register_uid] AS address_uid
       ,b.[snz_cen_hhld_uid] AS household_uid
 	  ,'cen2013' AS [source]
-FROM [IDI_Clean_20190420].[cen_clean].[census_address] a
-LEFT JOIN [IDI_Clean_20190420].[cen_clean].[census_individual] b
+FROM [IDI_Clean_20191020].[cen_clean].[census_address] a
+LEFT JOIN [IDI_Clean_20191020].[cen_clean].[census_individual] b
 ON a.snz_uid = b.snz_uid
 
 WHERE address_type_code = 'UR'
@@ -58,14 +59,14 @@ SELECT DISTINCT a.snz_uid
 ,a.snz_hes_hhld_uid AS household_uid
 ,CONCAT('HES_',a.hes_add_hes_year_code) AS [source]
 
-FROM [IDI_Clean_20190420].[hes_clean].[hes_address] AS a
+FROM [IDI_Clean_20191020].[hes_clean].[hes_address] AS a
 LEFT JOIN (
 
 	SELECT hes_hhd_hes_year_code
 	,hes_hhd_year_nbr
 	,hes_hhd_month_nbr
 	,snz_hes_hhld_uid
-	FROM [IDI_Clean_20190420].[hes_clean].[hes_household] 
+	FROM [IDI_Clean_20191020].[hes_clean].[hes_household] 
 
 	UNION ALL
  
@@ -108,7 +109,7 @@ FROM (
 		  ,[gss_hq_interview_start_date] AS notification_date
 		  ,[gss_hq_collection_code] AS [source]
 		  ,[snz_gss_hhld_uid] AS household_uid
-	FROM [IDI_Clean_20190420].[gss_clean].[gss_household_2008]
+	FROM [IDI_Clean_20191020].[gss_clean].[gss_household_2008]
 
 	UNION ALL
 
@@ -116,7 +117,7 @@ FROM (
 		  ,[gss_hq_interview_start_date] AS notification_date
 		  ,[gss_hq_collection_code] AS [source]
 		  ,[snz_gss_hhld_uid] AS household_uid
-	FROM [IDI_Clean_20190420].[gss_clean].[gss_household_2010]
+	FROM [IDI_Clean_20191020].[gss_clean].[gss_household_2010]
 
 	UNION ALL
 
@@ -124,7 +125,7 @@ FROM (
 		  ,[gss_hq_interview_start_date] AS notification_date
 		  ,[gss_hq_collection_code] AS [source]
 		  ,[snz_gss_hhld_uid] AS household_uid
-	FROM [IDI_Clean_20190420].[gss_clean].[gss_household_2012]
+	FROM [IDI_Clean_20191020].[gss_clean].[gss_household_2012]
 
 	UNION ALL
 
@@ -132,10 +133,10 @@ FROM (
 		  ,[gss_hq_interview_date] AS notification_date
 		  ,[gss_hq_collection_code] AS [source]
 		  ,[snz_gss_hhld_uid] AS household_uid
-	FROM [IDI_Clean_20190420].[gss_clean].[gss_household]
+	FROM [IDI_Clean_20191020].[gss_clean].[gss_household]
 
 ) k
-INNER JOIN [IDI_Clean_20190420].[gss_clean].[gss_identity] j
+INNER JOIN [IDI_Clean_20191020].[gss_clean].[gss_identity] j
 ON k.snz_uid = j.snz_uid
 AND k.[source] = j.[gss_id_collection_code]
 AND k.household_uid = j.snz_gss_hhld_uid
@@ -157,8 +158,8 @@ SELECT DISTINCT a.snz_uid
 ,b.snz_hlfs_hhld_uid AS household_uid
 ,'HLFS'+cast(year(cast(a.hlfs_adr_quarter_date as datetime)) as varchar)  as [source]
 
-FROM [IDI_Clean_20190420].[hlfs_clean].[household_address] as a
-INNER JOIN [IDI_Clean_20190420].[hlfs_clean].[data] as b
+FROM [IDI_Clean_20191020].[hlfs_clean].[household_address] as a
+INNER JOIN [IDI_Clean_20191020].[hlfs_clean].[data] as b
 ON a.[snz_hlfs_uid] = b.[snz_hlfs_uid] 
 AND a.[snz_hlfs_hhld_uid] = b.[snz_hlfs_hhld_uid]
 AND a.[hlfs_adr_quarter_date] = b.[hlfs_urd_quarter_date] 
@@ -183,7 +184,10 @@ SELECT DISTINCT snz_uid
 	,snz_idi_address_register_uid AS address_uid
 	,'current' AS [source]
 	,'NO' AS [validation]
-FROM [IDI_Clean_20190420].[data].[address_notification];
+FROM [IDI_Clean_20191020].[data].[address_notification]
+--FROM [IDI_Clean_20191020].[data].[address_notification_full] /* alternative option for testing performance */
+WHERE ant_address_source_code <> 'CEN'
+--AND ant_address_source_code NOT IN ('MOES', 'ACCC', 'IRDA', 'MSDP');
 GO
 
 /* SNZ 2013 census usual residence by household composition */
@@ -197,15 +201,13 @@ SELECT DISTINCT a.[snz_uid]
 	  ,a.[snz_idi_address_register_uid] AS address_uid
       ,b.[snz_cen_hhld_uid] AS household_uid
 	  ,CONCAT('cen2013_',IIF(c.[cen_hhd_hhld_comp_code] IN (111, 131, 151, 511, 611), c.[cen_hhd_hhld_comp_code], 444)) AS [source]
-FROM [IDI_Clean_20190420].[cen_clean].[census_address] a
-LEFT JOIN [IDI_Clean_20190420].[cen_clean].[census_individual] b
+FROM [IDI_Clean_20191020].[cen_clean].[census_address] a
+LEFT JOIN [IDI_Clean_20191020].[cen_clean].[census_individual] b
 ON a.snz_uid = b.snz_uid
-INNER JOIN [IDI_Clean_20190420].[cen_clean].[census_household] c
+INNER JOIN [IDI_Clean_20191020].[cen_clean].[census_household] c
 ON b.[snz_cen_hhld_uid] = c.[snz_cen_hhld_uid]
 
 WHERE address_type_code = 'UR'
 AND snz_idi_address_register_uid IS NOT NULL
 AND cen_ind_fam_grp_code <> '00';
 GO
-
-

@@ -41,19 +41,19 @@ source('group_address_analysis_functions.R')
 # user settings
 DEVELOPMENT_MODE = FALSE
 CAUTIOUS_MODE = TRUE
-IDI_CLEAN = "[IDI_Clean_20190420]"
+IDI_CLEAN = "[IDI_Clean_20191020]"
 # inputs and outputs
 INPUT_ADDRESS_CHANGE_TABLE = "chh_address_changes"
 OUTPUT_REPLACED = "chh_household_replaced_notifications"
 OUTPUT_REFINED = "chh_household_refined"
 INTERIM_BIRTH_RECORD = "chh_tmp_birth_record"
 # tuning parameters
-MOVE_TO = 30 # max days gap when 2 people are moving to same address (30 prev, 70 revised)
-MOVE_FROM = 20 # max days gap when 2 people are moving from same address (20 prev, 60 revised)
-MOVE_BOTH = 60 # max days gap when 2 people moving both from and to same address (60 prev. 90 revised)
+MOVE_TO = 70 # max days gap when 2 people are moving to same address (30 prev, 70 revised)
+MOVE_FROM = 60 # max days gap when 2 people are moving from same address (20 prev, 60 revised)
+MOVE_BOTH = 90 # max days gap when 2 people moving both from and to same address (60 prev. 90 revised)
 DEPENDENT_AGE = 15 # max age for children to count as dependents (15 prev, 18 revised)
-AVOIDED_OVERLAP = 23 # max gap between move-in and move-out of two different tenancies (23 prev, 30 revised)
-MINIMUM_TENANCY = 180 # minimum length of two different tenancies for comparison (180 prev, 90 revised)
+AVOIDED_OVERLAP = 35 # max gap between move-in and move-out of two different tenancies (23 prev, 30 revised)
+MINIMUM_TENANCY = 120 # minimum length of two different tenancies for comparison (180 prev, 90 revised)
 
 ## setup ----
 db_con_IDI_sandpit = create_database_connection(database = "IDI_Sandpit")
@@ -110,27 +110,27 @@ for(ii in 1:length(from_match)){
   recored_for_change = out_of_sync_records(address_notifications, from_match[ii], to_match[ii], max_days_gap[ii])
   recored_for_change = write_for_reuse(db_con_IDI_sandpit, our_schema, tbl_name = "chh_tmp_recored_for_change",
                                       tbl_to_save = recored_for_change, index_columns = "snz_uid")
-  
+
   # new and old notifications correcting out-of-sync-ness
   out = consistent_address_change_dates(recored_for_change)
   original_records_for_discard = out$discard
   new_records_for_addition = out$add
-  
+
   # store replaced notifications
   append_database_table(db_con_IDI_sandpit, our_schema, OUTPUT_REPLACED,
                         columns_for_replacement_table, original_records_for_discard)
-  
+
   # remove replaced and add updated notifications
   address_notifications = address_notifications %>%
     anti_join(original_records_for_discard, by = c("snz_uid", "notification_date", "address_uid", "source")) %>%
     union_all(new_records_for_addition, columns_for_notification_table)
-  
+
   # write for reuse
   temp_table = sprintf("chh_tmp_consistent_moves_%d",ii)
   address_notifications = write_for_reuse(db_con_IDI_sandpit, our_schema,
                                           tbl_name = temp_table,
                                           address_notifications, index_columns = "snz_uid")
-  
+
   if(CAUTIOUS_MODE){ cautious_reconnect(address_notifications, purge = TRUE) }
   run_time_inform_user(sprintf("- iteration %d complete",ii))
 }
@@ -139,7 +139,7 @@ for(ii in 1:length(from_match)){
 
 run_time_inform_user("Syncing parents and children")
 
-birth_records = create_access_point(db_con_IDI_sandpit, paste0(IDI_CLEAN,".[dia_clean]"), "[births]")
+birth_records = create_access_point(db_con_IDI_sandpit, our_view, "[chh_dia_births]")
 birth_records = obtain_birth_record(birth_records)
 birth_records = write_for_reuse(db_con_IDI_sandpit, our_schema, INTERIM_BIRTH_RECORD,
                                 birth_records, index_columns = "snz_uid")

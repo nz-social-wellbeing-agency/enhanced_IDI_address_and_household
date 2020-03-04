@@ -74,8 +74,8 @@ list_of_views_to_load <- c("chh_acc_notifications",
                            "chh_moh_nhi_notifications",
                            "chh_moh_pho_notifications",
                            # "chh_census_ur_notifications",
-                           "chh_census_ur5_notifications",
-                           "chh_census_prev_notifications",
+                           # "chh_census_ur5_notifications",
+                           # "chh_census_prev_notifications",
                            # "chh_hes_notifications",
                            # "chh_gss_notifications",
                            # "chh_hlfs_notifications",
@@ -94,10 +94,12 @@ compress_table(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE)
 run_time_inform_user("compressed")
 
 ## table of accuracy measures ----
+#
+# only works when gathered data includes validation data as well.
 
 run_time_inform_user("obtain accuracy measures")
 address_notifications = create_access_point(db_con_IDI_sandpit, our_schema, OUTPUT_TABLE)
-person_details = create_access_point(db_con_IDI_sandpit, "[IDI_Clean_20190420].[data]", "personal_detail")
+person_details = create_access_point(db_con_IDI_sandpit, "[IDI_Clean_20191020].[data]", "personal_detail")
 accuracy_measures = obtain_accuracy_measures(address_notifications, person_details, ACCURACY_WINDOW)
 accuracy_measures = write_to_database(accuracy_measures, db_con_IDI_sandpit, our_schema,
                                       "chh_accuracy_measures", OVERWRITE = TRUE)
