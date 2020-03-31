@@ -120,7 +120,7 @@ connect_truth_with_admin_to_compare <- function(admin_table, truth_table){
 #' 
 #' by Akilesh CHOKKANATHAPURAM
 #'
-address_validation_algorithm <- function(truth_w_latest_admin){
+address_validation_algorithm <- function(truth_w_latest_admin, not_sql = FALSE){
   # compare in both directions
   # ACHOKKANATHAPURAM WAS HERE
   compare_against_truth <- one_way_comparison(truth_w_latest_admin, "address_uid_truth")
@@ -158,7 +158,8 @@ address_validation_algorithm <- function(truth_w_latest_admin){
   # )
   
   # load into R
-  save_to_sql(sql_render(final_classification), "household_accuracy")
+  if(not_sql)
+    save_to_sql(sql_render(final_classification), "household_accuracy")
   final_classification <- final_classification %>% collect()
   run_time_inform_user("data transfered from SQL into R")
   
@@ -211,9 +212,9 @@ one_way_comparison <- function(input_table, address_column){
   # and less than 50 is POOR.
   # Any households missing a category are also termed POOR to reduce algorithmic errors
   ppp_classified <- ready_for_classification %>%
-    mutate(stat = if(percent_match == 1) "PERFECT"
-           else if(percent_match >= 0.5) "PARTIAL"
-           else "POOR") %>%
+    mutate(stat = ifelse(percent_match == 1, "PERFECT",
+                         ifelse(percent_match >= 0.5, "PARTIAL", "POOR"))) %>%
+    ungroup() %>%
     select(source = source_truth, address_uid, total_residents, matched_residents, percent_match, stat)
   
   return(ppp_classified)

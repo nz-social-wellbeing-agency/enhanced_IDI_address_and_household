@@ -23,9 +23,9 @@
 #'#############################################################################
 
 # connection details
-DEFAULT_SERVER <- 
-DEFAULT_DATABASE <- 
-DEFAULT_PORT <- 
+DEFAULT_SERVER <- "placeholder"
+DEFAULT_DATABASE <- "placeholder"
+DEFAULT_PORT <- NA
 # DO NOT RELEASE THESE VALUES
 
 # error if connection details are missing
