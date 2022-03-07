@@ -1,4 +1,4 @@
-# IDI_address_and_household_informaiton
+# IDI address and household informaiton
 An attempt to improve the quality of address and household information in the IDI
 
 ## Overview
@@ -37,6 +37,10 @@ Prior to running the project be sure to review the associated report and documen
 The main purpose of step 1 is to convert the raw data into a standardised format that will be used for analysis. The final step in the process is to validate the quality of the prepared table. Between these two points, the analysis expects and requires a standardised format.
 
 Note that a variety of intermediate tables are saved during the construction process. Some of these tables are temporary and are deleted automatically once they are no longer required. Others persist beyond the end of the construction. We recommend that the database have at least four times the storage space of the input data available before conducting the analysis. Otherwise the analysis is likely to crash or freeze due to lack of memory. As most of the processing is pushed to the database, R memory is unlikely to be a constraint. Once the final table is produced manual removal of key intermediate tables is recommended.
+
+## Citation
+
+Social Wellbeing Agency (2020). Enhanced IDI address and household. Source code. https://github.com/nz-social-wellbeing-agency/enhanced_IDI_address_and_household
 
 ## Getting Help
 If you have any questions email info@swa.govt.nz
